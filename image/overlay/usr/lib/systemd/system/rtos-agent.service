@@ -1,0 +1,15 @@
+[Unit]
+Description=C906L agent: lock default and remoteproc0 check
+Documentation=file:/etc/duo-playground-release
+Wants=playground-modules.service
+After=playground-modules.service
+
+[Service]
+# Runs once and exits. Users and PlatformIO call /usr/bin/rtos-agent over
+# SSH; nothing stays resident and no port is opened.
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/rtos-agent boot
+
+[Install]
+WantedBy=multi-user.target

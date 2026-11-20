@@ -1,0 +1,183 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# BusyBox ash on the device provides read -t. Credentials are never passed
+# as command arguments. Keep the last working profile until a new one works.
+set -eu
+export LC_ALL=C
+AUTO=0
+case "${1:-}" in
+    --auto) AUTO=1 ;;
+    '') ;;
+    *) echo 'Usage: beitlab-wifi-setup [--auto]' >&2; exit 2 ;;
+esac
+[ "$(id -u)" = 0 ] || { echo 'Run this command as root.' >&2; exit 1; }
+[ -t 0 ] || exit 0
+
+CONFIG=/etc/wpa_supplicant/beitlab-wlan0.conf
+BACKUP=
+CANDIDATE=
+TTY_STATE=$(stty -g)
+umask 077
+# Avoid two consoles replacing the same profile at once.
+exec 9>/run/beitlab-wifi-setup.lock
+flock -n 9 || { echo 'Wi-Fi setup is already open on another console.'; exit 1; }
+
+cleanup() {
+    stty "$TTY_STATE" 2>/dev/null || true
+    if [ -n "$BACKUP" ]; then
+        mv -f "$BACKUP" "$CONFIG"
+        systemctl restart beitlab-wpa.service >/dev/null 2>&1 || true
+        dhcpcd -n wlan0 >/dev/null 2>&1 || true
+    fi
+    [ -z "$CANDIDATE" ] || rm -f "$CANDIDATE"
+}
+trap cleanup EXIT
+trap 'printf "\nWi-Fi setup cancelled.\n"; exit 0' INT TERM HUP
+
+has_address() {
+    ip -4 addr show dev "$1" scope global 2>/dev/null |
+        awk '$1 == "inet" && $2 !~ /^169\.254\./ { found=1 } END { exit !found }' && return 0
+    ip -6 addr show dev "$1" scope global 2>/dev/null |
+        awk '$1 == "inet6" && $0 !~ /tentative|dadfailed/ { found=1 } END { exit !found }'
+}
+wifi_connected() {
+    wpa_cli -i wlan0 status 2>/dev/null | grep -qx 'wpa_state=COMPLETED' && has_address wlan0
+}
+ethernet_connected() {
+    # The bench image's systemd names the onboard Ethernet device end0.
+    # Also accept eth0 for systems using the kernel's original name.
+    for interface in end0 eth0; do
+        if [ "$(cat "/sys/class/net/$interface/carrier" 2>/dev/null)" = 1 ] && has_address "$interface"; then
+            return 0
+        fi
+    done
+    return 1
+}
+network_connected() {
+    ethernet_connected || wifi_connected
+}
+cancelled() {
+    case "$1" in q|Q|cancel|CANCEL) return 0 ;; *) return 1 ;; esac
+}
+ask() {
+    printf '%s' "$1"
+    # A missing console must not hold the boot forever. Also bound later
+    # prompts in case the user unplugs the serial adapter mid-setup.
+    if ! IFS= read -r -t "$2" ANSWER; then
+        printf '\nWi-Fi setup skipped (no input). Run beitlab-wifi-setup later.\n'
+        exit 0
+    fi
+}
+
+if [ "$AUTO" = 1 ]; then
+    # Give Ethernet DHCP or the saved Wi-Fi profile time to come up.
+    for tick in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+        network_connected && exit 0
+        sleep 1
+    done
+    printf '\nbeitlab Robotics MilkV duo OS\nNo Ethernet or Wi-Fi connection detected.\n'
+    ask 'Connect to Wi-Fi now? [y/N] (30 seconds): ' 30
+else
+    ask 'Configure Wi-Fi now? [y/N]: ' 180
+fi
+case "$ANSWER" in y|Y|yes|YES) ;; *) echo 'Wi-Fi setup skipped. Run beitlab-wifi-setup later.'; exit 0 ;; esac
+
+if ! systemctl start beitlab-wpa.service; then
+    echo 'Wi-Fi could not start. Check journalctl -u beitlab-wifi -u beitlab-wpa.'
+    exit 1
+fi
+if [ ! -d /sys/class/net/wlan0 ]; then
+    echo 'No wlan0 device found. This board may not have the Wi-Fi module.'
+    exit 1
+fi
+
+echo 'Use q at an SSID/retry prompt or Ctrl-C at any time to cancel.'
+while :; do
+    # A cable plugged in during setup can end the automatic wizard.
+    if [ "$AUTO" = 1 ] && network_connected; then
+        echo 'Network is connected. Leaving Wi-Fi setup.'
+        exit 0
+    fi
+    ask 'SSID (q to cancel): ' 180
+    cancelled "$ANSWER" && exit 0
+    SSID=$ANSWER
+    if [ -z "$SSID" ] || [ "${#SSID}" -gt 32 ]; then
+        echo 'SSID must contain 1 to 32 bytes.'
+        continue
+    fi
+    stty -echo
+    printf 'Password (hidden; Ctrl-C to cancel): '
+    if ! IFS= read -r -t 180 PASSWORD; then
+        stty "$TTY_STATE"
+        printf '\nWi-Fi setup cancelled (no input).\n'
+        exit 0
+    fi
+    stty "$TTY_STATE"
+    printf '\n'
+    if [ "${#PASSWORD}" -lt 8 ] || [ "${#PASSWORD}" -gt 63 ]; then
+        unset PASSWORD
+        echo 'WPA/WPA2 Personal passwords must contain 8 to 63 bytes.'
+        continue
+    fi
+    CANDIDATE=$(mktemp /etc/wpa_supplicant/.beitlab-candidate.XXXXXX)
+    # Encode SSID bytes to prevent quotes/backslashes from changing the
+    # configuration. Strip wpa_passphrase's plaintext-password comment.
+    SSID_HEX=$(printf '%s' "$SSID" | od -An -tx1 | tr -d ' \n')
+    if ! PSK=$(printf '%s\n' "$PASSWORD" | wpa_passphrase "$SSID" |
+        sed -n 's/^[[:space:]]*psk=\([0-9a-f]\{64\}\)$/\1/p'); then
+        PSK=
+    fi
+    unset PASSWORD
+    if [ "${#PSK}" != 64 ]; then
+        echo 'Could not generate the Wi-Fi profile. Please try again.'
+        rm -f "$CANDIDATE"; CANDIDATE=
+        continue
+    fi
+    cat > "$CANDIDATE" <<EOF
+ctrl_interface=/run/wpa_supplicant
+update_config=0
+network={
+    ssid=$SSID_HEX
+    scan_ssid=1
+    key_mgmt=WPA-PSK
+    psk=$PSK
+}
+EOF
+    unset PSK
+    if [ -z "$BACKUP" ]; then
+        SAVED=$(mktemp /etc/wpa_supplicant/.beitlab-backup.XXXXXX)
+        cp -p "$CONFIG" "$SAVED" || { rm -f "$SAVED"; exit 1; }
+        BACKUP=$SAVED
+    fi
+    mv -f "$CANDIDATE" "$CONFIG"; CANDIDATE=
+    # Clear the old lease so success requires an address on this network.
+    ip -4 addr flush dev wlan0 scope global >/dev/null 2>&1 || true
+    ip -6 addr flush dev wlan0 scope global >/dev/null 2>&1 || true
+    systemctl restart beitlab-wpa.service
+    dhcpcd -n wlan0 >/dev/null 2>&1 || true
+    for attempt in 1 2 3; do
+        echo "Connecting (attempt $attempt/3; q then Enter or Ctrl-C cancels)..."
+        tick=0
+        while [ "$tick" -lt 20 ]; do
+            if wifi_connected; then
+                rm -f "$BACKUP"; BACKUP=
+                sync
+                echo 'Wi-Fi connected. Saved for automatic connection at future boots.'
+                ip addr show dev wlan0
+                exit 0
+            fi
+            if [ "$AUTO" = 1 ] && ethernet_connected; then
+                echo 'Ethernet connected. Leaving Wi-Fi setup.'
+                exit 0
+            fi
+            if IFS= read -r -t 1 ANSWER; then
+                cancelled "$ANSWER" && exit 0
+            fi
+            tick=$((tick + 1))
+        done
+        [ "$attempt" = 3 ] || wpa_cli -i wlan0 reassociate >/dev/null 2>&1 || true
+    done
+    echo 'Connection failed: check SSID, password, signal, and router DHCP.'
+    ask 'Try another SSID/password? [Y/n/q]: ' 180
+    case "$ANSWER" in n|N|no|NO|q|Q|cancel|CANCEL) exit 0 ;; esac
+done

@@ -1,0 +1,35 @@
+# Fetched SDK/toolchains and generated release artifacts.
+/sdk/
+/out/
+
+# Local build directories.
+/build/
+/firmware/build/
+/agent/build/
+.platformio/
+.pio/
+
+# Direct firmware builds can write artifacts outside the build directories.
+obj-*/
+*.o
+*.a
+*.elf
+*.elf.map
+*.img
+*.img.xz
+*.img.gz
+*.zip
+*.bin
+*.ko
+*.so
+*.map
+
+# Python bytecode caches.
+__pycache__/
+*.py[cod]
+
+# Editor and desktop temporary files.
+*~
+*.swp
+*.swo
+.DS_Store

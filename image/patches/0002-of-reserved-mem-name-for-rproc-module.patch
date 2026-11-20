@@ -1,0 +1,42 @@
+From: beitlab Robotics MilkV duo OS <image/patches>
+Subject: [PATCH 2/7] of: reserved_mem: keep full region names when the cvitek rproc is a module
+
+Local change on top of 0001, not from upstream.
+
+0001 switches reserved_mem.name from char[8] to a pointer only when
+CONFIG_CVITEK_REMOTEPROC is defined. With CONFIG_CVITEK_REMOTEPROC=m the
+kernel defines CONFIG_CVITEK_REMOTEPROC_MODULE instead, the 8-byte copy
+comes back, "rtos_dram@9fe00000" is stored without a terminator, and
+of_reserved_mem_lookup() cannot find the carveout. IS_ENABLED() covers
+both =y and =m.
+
+The playground builds the driver as a module so that rproc auto_boot runs
+after the root filesystem holds /lib/firmware/playground.elf
+(docs/sdk-notes.md, "Boot path").
+---
+diff --git a/linux_5.10/drivers/of/of_reserved_mem.c b/linux_5.10/drivers/of/of_reserved_mem.c
+index bbc072ac..ccb369b1 100644
+--- a/linux_5.10/drivers/of/of_reserved_mem.c
++++ b/linux_5.10/drivers/of/of_reserved_mem.c
+@@ -69,7 +69,7 @@ void __init fdt_reserved_mem_save_node(unsigned long node, const char *uname,
+ 	}
+ 
+ 	rmem->fdt_node = node;
+-#if defined(CONFIG_ARCH_CVITEK) && !defined(CONFIG_CVITEK_REMOTEPROC)
++#if defined(CONFIG_ARCH_CVITEK) && !IS_ENABLED(CONFIG_CVITEK_REMOTEPROC)
+ 	strncpy(rmem->name, uname, 8);
+ #else
+ 	rmem->name = uname;
+diff --git a/linux_5.10/include/linux/of_reserved_mem.h b/linux_5.10/include/linux/of_reserved_mem.h
+index ea6c8735..8598bb97 100644
+--- a/linux_5.10/include/linux/of_reserved_mem.h
++++ b/linux_5.10/include/linux/of_reserved_mem.h
+@@ -9,7 +9,7 @@ struct of_phandle_args;
+ struct reserved_mem_ops;
+ 
+ struct reserved_mem {
+-#if defined(CONFIG_ARCH_CVITEK) && !defined(CONFIG_CVITEK_REMOTEPROC)
++#if defined(CONFIG_ARCH_CVITEK) && !IS_ENABLED(CONFIG_CVITEK_REMOTEPROC)
+ 	char				name[8];
+ #else
+ 	char				*name;

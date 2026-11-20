@@ -1,0 +1,12 @@
+[Unit]
+Description=Import Wi-Fi credentials from the boot volume
+RequiresMountsFor=/boot
+Before=beitlab-wpa.service
+ConditionPathExists=/boot/playground/wifi.conf
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/playground/import-wifi
+
+[Install]
+WantedBy=multi-user.target

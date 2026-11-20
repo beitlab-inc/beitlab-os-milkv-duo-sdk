@@ -1,0 +1,30 @@
+# Pinned Milk-V SDK for the Duo S playground image.
+# Read by scripts/build-image.sh and scripts/fetch-freertos.sh.
+# Format: key = value, one per line. Values are not quoted.
+
+sdk_url = https://github.com/milkv-duo/duo-buildroot-sdk-v2
+sdk_commit = 6f8962c394dd0a05729abb089f0feb7d5cc4aa5e
+target = milkv-duos-glibc-arm64-sd
+board_link = sg2000_milkv_duos_glibc_arm64_sd
+freertos_script = freertos/cvitek/build_cv181x.sh
+host_os = Ubuntu 22.04 amd64, with the SDK Docker path as the supported alternative
+# Docker environment the Milk-V SDK README documents ("Compiled using
+# Docker") for hosts that are not Ubuntu 22.04. Used by build-image.sh --docker.
+docker_image = milkvtech/milkv-duo:latest
+
+# sha256 of the C906 toolchain file at sdk_commit. Both scripts refuse to
+# build if the checked-out file differs.
+toolchain_file = freertos/cvitek/scripts/toolchain-riscv64-elf.cmake
+toolchain_file_sha256 = 6d89ecf2613f0f6224a8ebd2bc8af7c992d40928da2b528ef95b7c4729031c48
+
+# The mailbox ABI header the examples copy cmdqu_t from.
+cmdqu_header = freertos/cvitek/driver/rtos_cmdqu/include/rtos_cmdqu.h
+cmdqu_header_sha256 = 0c161ca04037a9905f7655e073f593526fec22d5111e8b7a821fa18ebadac9e2
+
+# The SDK fetches its toolchains with `git clone` of this repository
+# (build.sh get_toolchain). No standalone tarball is documented, so the
+# scripts take only the subtrees they need at this commit.
+host_tools_url = https://github.com/milkv-duo/host-tools.git
+host_tools_commit = 67688c7335e7239f7592b86ed1432c97cbab245b
+host_tools_riscv64_elf = gcc/riscv64-elf-x86_64
+host_tools_aarch64_linux = gcc/gcc-linaro-7.3.1-2018.05-x86_64_aarch64-linux-gnu

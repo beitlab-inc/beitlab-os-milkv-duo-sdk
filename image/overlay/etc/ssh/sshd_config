@@ -1,0 +1,28 @@
+# beitlab OS: regular-user SSH, keys by default.
+Include /etc/ssh/sshd_config.d/*.conf
+Port 22
+AddressFamily any
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+HostKey /etc/ssh/ssh_host_rsa_key
+
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+PermitEmptyPasswords no
+UsePAM no
+
+X11Forwarding no
+PrintMotd yes
+ClientAliveInterval 30
+
+Subsystem sftp /usr/libexec/sftp-server
+
+MaxAuthTries 3
+LoginGraceTime 30
+AllowGroups beitlab
+AllowAgentForwarding no
+AllowTcpForwarding no
+PermitTunnel no

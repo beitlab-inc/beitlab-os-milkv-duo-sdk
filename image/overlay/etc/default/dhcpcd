@@ -1,0 +1,2 @@
+# Background immediately, including when neither link is connected.
+DAEMON_ARGS="-b"

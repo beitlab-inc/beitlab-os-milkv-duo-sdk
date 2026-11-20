@@ -1,0 +1,7 @@
+Defaults env_reset,use_pty
+Defaults secure_path="/usr/sbin:/usr/bin:/sbin:/bin"
+root ALL=(ALL:ALL) ALL
+%wheel ALL=(ALL:ALL) ALL
+# All accepted arguments are checked by this root-owned helper. No shell,
+# arbitrary command, user-selected file path, or agent boot command is allowed.
+beitlab ALL=(root) NOPASSWD: /usr/libexec/playground/rtos-control

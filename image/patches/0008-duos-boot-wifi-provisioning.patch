@@ -1,0 +1,26 @@
+From: beitlab Robotics MilkV duo OS <image/patches>
+Subject: [PATCH 8/8] duos: identify boot volumes supporting Wi-Fi provisioning
+
+Local change to the pinned SDK's device/milkv-duos-glibc-arm64-sd/genimage.cfg.
+Keep the SDK partition layout, fip.bin and boot.sd (from rawimages/). Include a
+non-secret capability marker from the rootfs overlay so the PC helper can
+reject old images that lack the first-boot importer.
+---
+diff --git a/device/milkv-duos-glibc-arm64-sd/genimage.cfg b/device/milkv-duos-glibc-arm64-sd/genimage.cfg
+--- a/device/milkv-duos-glibc-arm64-sd/genimage.cfg
++++ b/device/milkv-duos-glibc-arm64-sd/genimage.cfg
+@@ -5,5 +5,14 @@ image boot.vfat {
+ 			"fip.bin",
+ 			"rawimages/boot.sd",
+ 		}
++		file playground/wifi-supported {
++			image = "fs/boot/playground/wifi-supported"
++		}
++		file playground/setup-supported {
++			image = "fs/boot/playground/setup-supported"
++		}
++		file playground/user-supported {
++			image = "fs/boot/playground/user-supported"
++		}
+ 	}
+ 	size = 128M

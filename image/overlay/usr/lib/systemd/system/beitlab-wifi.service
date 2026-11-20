@@ -1,0 +1,13 @@
+[Unit]
+Description=beitlab Robotics MilkV duo OS: AIC8800 Wi-Fi drivers
+After=local-fs.target systemd-udevd.service
+Before=beitlab-wpa.service
+ConditionPathExists=/mnt/system/ko/aic8800_bsp.ko
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/playground/load-wifi
+
+[Install]
+WantedBy=multi-user.target

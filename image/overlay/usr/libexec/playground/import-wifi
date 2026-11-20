@@ -1,0 +1,37 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Consume the PC-generated profile before wpa_supplicant starts. Never
+# execute boot-volume content or accept arbitrary supplicant directives.
+set -eu
+SRC=/boot/playground/wifi.conf
+DST=/etc/wpa_supplicant/beitlab-wlan0.conf
+[ -f "$SRC" ] || exit 0
+umask 077
+TEMP=$(mktemp /etc/wpa_supplicant/.beitlab-import.XXXXXX)
+trap 'rm -f "$TEMP"' EXIT
+tr -d '\r' < "$SRC" > "$TEMP"
+if ! awk '
+    { sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "") }
+    NR == 1 { if ($0 != "ctrl_interface=/run/wpa_supplicant") bad=1; next }
+    NR == 2 { if ($0 != "update_config=0") bad=1; next }
+    NR == 3 && $0 ~ /^country=[A-Z][A-Z]$/ { next }
+    !opened && $0 == "network={" { opened=1; next }
+    opened && !closed && /^ssid=[0-9a-f]+$/ && length($0) >= 7 && length($0) <= 69 && length($0)%2 == 1 { ssid++; next }
+    opened && !closed && $0 == "scan_ssid=1" { scan++; next }
+    opened && !closed && $0 == "key_mgmt=WPA-PSK" { key++; next }
+    opened && !closed && /^psk=[0-9a-f]+$/ && length($0) == 68 { psk++; next }
+    opened && !closed && $0 == "}" { closed=1; next }
+    { bad=1 }
+    END { exit !(NR >= 8 && opened && closed && ssid==1 && scan==1 && key==1 && psk==1 && !bad) }
+' "$TEMP"; then
+    echo 'beitlab: invalid boot Wi-Fi profile; keeping the saved network. Re-run configure-wifi.py.' >&2
+    exit 1
+fi
+chown 0:0 "$TEMP"
+chmod 600 "$TEMP"
+mv -f "$TEMP" "$DST"
+# Persist the installed profile before consuming the provisioning file.
+sync
+rm -f "$SRC"
+sync
+echo 'beitlab: imported boot Wi-Fi profile for automatic connection.'

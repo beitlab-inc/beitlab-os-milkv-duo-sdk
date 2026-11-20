@@ -1,0 +1,4 @@
+#!/bin/sh
+# Legacy SDK entry point: always request normal login credentials.
+# systemd does not use the vendor SysV inittab.
+exec /bin/login

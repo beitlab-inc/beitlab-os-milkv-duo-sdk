@@ -1,0 +1,14 @@
+# beitlab Robotics MilkV duo OS: services enabled on the image.
+enable playground-modules.service
+enable rtos-agent.service
+enable playground-keys.service
+enable beitlab-user.service
+enable beitlab-user-setup.service
+enable beitlab-hostname.service
+enable sshd.service
+enable avahi-daemon.service
+enable dhcpcd.service
+enable beitlab-wifi.service
+enable beitlab-wifi-import.service
+enable beitlab-wpa.service
+enable beitlab-network-setup.service

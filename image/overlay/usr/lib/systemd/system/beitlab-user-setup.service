@@ -1,0 +1,20 @@
+[Unit]
+Description=Initial regular-user password setup on J22
+Wants=beitlab-user.service playground-keys.service rtos-agent.service
+After=beitlab-user.service playground-keys.service rtos-agent.service
+Before=beitlab-network-setup.service serial-getty@ttyS0.service
+ConditionPathExists=/dev/ttyS0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/beitlab-user-setup
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/ttyS0
+TTYReset=yes
+TTYVHangup=yes
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,24 @@
+From: beitlab Robotics MilkV duo OS <image/patches>
+Subject: [PATCH 9/9] rootfs: regular operator account, locked root and sudo
+
+Local change on top of patch 0006 at sdk.lock. Root has no usable password.
+The regular user starts locked until unique credentials are provisioned.
+---
+--- a/buildroot/configs/milkv-duos-glibc-arm64-sd_defconfig
++++ b/buildroot/configs/milkv-duos-glibc-arm64-sd_defconfig
+@@ -7,7 +7,7 @@
+ BR2_TARGET_GENERIC_HOSTNAME="beitlab-milkv-duo"
+ BR2_INIT_SYSTEMD=y
+ BR2_TARGET_GENERIC_ISSUE="beitlab Robotics MilkV duo OS"
+-BR2_TARGET_GENERIC_ROOT_PASSWD="playground"
++# BR2_TARGET_ENABLE_ROOT_LOGIN is not set
+ BR2_ROOTFS_OVERLAY="board/milkv/milkv-duos-glibc-arm64-sd/overlay"
+ BR2_PACKAGE_BUSYBOX_SHOW_OTHERS=y
+ BR2_PACKAGE_ALSA_UTILS=y
+@@ -98,3 +98,6 @@
+ # BR2_PACKAGE_SYSTEMD_NETWORKD is not set
+ # BR2_PACKAGE_SYSTEMD_RESOLVED is not set
+ BR2_ROOTFS_DEVICE_TABLE="system/device_table.txt $(TOPDIR)/../device/milkv-duos-glibc-arm64-sd/permissions.txt"
++BR2_PACKAGE_SUDO=y
++BR2_ROOTFS_USERS_TABLES="$(TOPDIR)/../device/milkv-duos-glibc-arm64-sd/users.txt"
++BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES="$(TOPDIR)/../device/milkv-duos-glibc-arm64-sd/busybox-user.config"

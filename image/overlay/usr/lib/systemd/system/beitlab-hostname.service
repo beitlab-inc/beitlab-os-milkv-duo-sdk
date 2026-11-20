@@ -1,0 +1,12 @@
+[Unit]
+Description=Import the first-boot hostname from the boot volume
+RequiresMountsFor=/boot
+Before=dhcpcd.service sshd.service avahi-daemon.service beitlab-wpa.service
+ConditionPathExists=/boot/playground/hostname
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/playground/import-hostname
+
+[Install]
+WantedBy=multi-user.target

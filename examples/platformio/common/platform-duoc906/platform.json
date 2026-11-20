@@ -1,0 +1,12 @@
+{
+  "name": "duoc906",
+  "title": "beitlab Robotics MilkV duo OS C906L",
+  "description": "Builds FreeRTOS programs for the Milk-V Duo S small C906 core against the pinned Milk-V SDK FreeRTOS tree and loads them over SSH with rtos-agent.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "engines": {
+    "platformio": "^6"
+  },
+  "frameworks": {},
+  "packages": {}
+}

@@ -1,0 +1,14 @@
+{
+  "name": "Milk-V Duo S, C906L (small core) under beitlab Robotics MilkV duo OS",
+  "url": "https://milkv.io/duo-s",
+  "vendor": "Milk-V",
+  "frameworks": [],
+  "build": {
+    "mcu": "sg2000-c906l",
+    "f_cpu": "700000000L"
+  },
+  "upload": {
+    "protocol": "custom",
+    "protocols": ["custom"]
+  }
+}

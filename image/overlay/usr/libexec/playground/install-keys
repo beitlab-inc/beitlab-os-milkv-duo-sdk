@@ -1,0 +1,30 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Add the keys in /boot/playground/authorized_keys (the FAT boot partition,
+# folder playground/) to /home/beitlab/.ssh/authorized_keys. Keys already present
+# are kept; nothing is removed. Password login is configured separately.
+set -eu
+SRC=/boot/playground/authorized_keys
+DST=/home/beitlab/.ssh/authorized_keys
+[ -f "$SRC" ] || exit 0
+umask 077
+[ ! -L /home/beitlab/.ssh ] && [ ! -L "$DST" ] || {
+  echo 'beitlab: refusing symlink in SSH key destination.' >&2; exit 1;
+}
+mkdir -p /home/beitlab/.ssh
+ssh-keygen -l -f "$SRC" >/dev/null
+touch "$DST"
+# FAT files written on Windows end lines with CR LF.
+tr -d '\r' < "$SRC" | while IFS= read -r key || [ -n "$key" ]; do
+  case "$key" in ''|'#'*) continue ;; esac
+  if ! grep -qxF "$key" "$DST"; then
+    printf '%s\n' "$key" >> "$DST"
+    echo "playground: added key for beitlab: ${key%% *} ...${key##* }"
+  fi
+done
+chmod 700 /home/beitlab/.ssh
+chmod 600 "$DST"
+chown -R beitlab:beitlab /home/beitlab/.ssh
+sync
+rm -f "$SRC"
+sync

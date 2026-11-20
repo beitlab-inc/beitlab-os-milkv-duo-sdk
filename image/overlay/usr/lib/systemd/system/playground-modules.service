@@ -1,0 +1,15 @@
+[Unit]
+Description=beitlab Robotics MilkV duo OS: mailbox modules and C906L remoteproc driver
+Documentation=file:/etc/duo-playground-release
+DefaultDependencies=no
+After=local-fs.target systemd-udevd.service
+Before=rtos-agent.service sysinit.target
+ConditionPathIsDirectory=/mnt/system/ko
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/playground/load-modules
+
+[Install]
+WantedBy=sysinit.target

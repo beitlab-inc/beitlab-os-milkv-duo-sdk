@@ -1,0 +1,11 @@
+[Unit]
+Description=Provision the regular beitlab account before SSH
+RequiresMountsFor=/boot
+Before=playground-keys.service sshd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/playground/import-user
+
+[Install]
+WantedBy=multi-user.target

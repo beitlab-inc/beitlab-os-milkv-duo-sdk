@@ -1,0 +1,42 @@
+{
+  "id": "beitlab_robotics_rev011",
+  "extends": "duos_bare",
+  "description": "Beitlab robotics carrier revision 0.11; robot connections reserved",
+  "sources": [
+    "../Balanced_robot/include/balance/board_carrier.h: BAL_BOARD_REVISION 0.11",
+    "../Robotics_board/hardware/kicad/generate_carrier.py: J3MAP, J4MAP (revision 0.11)"
+  ],
+  "pins": {
+    "B11": {"owner": "robot", "purpose": "right motor PWM A"},
+    "B12": {"owner": "robot", "purpose": "right motor PWM B"},
+    "B20": {"owner": "robot", "purpose": "right motor PWM C"},
+    "E0": {"owner": "robot", "purpose": "left motor PWM A"},
+    "E1": {"owner": "robot", "purpose": "left motor PWM B"},
+    "E2": {"owner": "robot", "purpose": "left motor PWM C"},
+    "A18": {"owner": "robot", "purpose": "left knee servo PWM"},
+    "A19": {"owner": "robot", "purpose": "right knee servo PWM"},
+    "B15": {"owner": "robot", "purpose": "SPI3 encoder clock"},
+    "B13": {"owner": "robot", "purpose": "SPI3 encoder MOSI"},
+    "B14": {"owner": "robot", "purpose": "SPI3 encoder MISO"},
+    "B16": {"owner": "robot", "purpose": "left rotor encoder CS"},
+    "B18": {"owner": "robot", "purpose": "right rotor encoder CS"},
+    "B22": {"owner": "robot", "purpose": "left knee encoder CS"},
+    "B21": {"owner": "robot", "purpose": "right knee encoder CS"},
+    "B1": {"owner": "robot", "purpose": "I2C4 SCL: IMU and ADC bus"},
+    "B2": {"owner": "robot", "purpose": "I2C4 SDA: IMU and ADC bus"},
+    "A20": {"owner": "robot", "purpose": "BMI323 IMU interrupt"},
+    "B19": {"owner": "robot", "purpose": "MOT_EN_REQ motor enable request"},
+    "C20": {"owner": "robot", "purpose": "ESTOP_ARM E-stop latch"},
+    "A28": {"owner": "robot", "purpose": "DRV_NFAULT motor driver fault input"},
+    "B3": {"owner": "robot", "purpose": "WDT_KICK motor watchdog"},
+    "C19": {"owner": "robot", "purpose": "DRV_NSLEEP motor driver sleep"},
+    "C18": {"owner": "robot", "purpose": "DRV_NRESET motor driver reset"}
+  },
+  "reserved_resources": {
+    "spi3": "robot encoder bus",
+    "i2c4": "robot IMU/ADC/accessory bus",
+    "pwm0": "robot right motor PWM controller",
+    "pwm1": "robot knee servo PWM controller",
+    "pwm2": "robot left motor PWM controller"
+  }
+}

@@ -1,0 +1,28 @@
+From: beitlab Robotics MilkV duo OS <image/patches>
+Subject: [PATCH 5/7] rtos_cmdqu: do not kfree an uninitialized pointer in SEND_WAIT
+
+Local fix, not from upstream.
+
+cvi_rtos_cmdqu_ioctl() declares `wait_list` without an initializer and the
+RTOS_CMDQU_SEND_WAIT case calls kfree(wait_list) twice (on copy_from_user
+failure and after copy_to_user). Nothing in that case assigns it, so the
+kernel frees whatever the stack held. rtos_cmdqu_send_wait() already frees
+its own list entry. Initializing the pointer to NULL makes both kfree()
+calls no-ops and leaves every other path unchanged.
+
+The playground's host_ping (examples/platformio/mailbox_ping/host_ping.c)
+is a userspace caller of RTOS_CMDQU_SEND_WAIT.
+---
+diff --git a/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c b/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c
+index 66dfc699..6733ca7d 100644
+--- a/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c
++++ b/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c
+@@ -456,7 +456,7 @@ EXPORT_SYMBOL(rtos_cmdqu_send_wait);
+ static long cvi_rtos_cmdqu_ioctl(struct file *filp, unsigned int cmd, unsigned long  arg)
+ {
+ 	struct cvi_rtos_cmdqu_device *dev = filp->private_data;
+-	struct rtos_cmdqu_wait_list_t *wait_list;
++	struct rtos_cmdqu_wait_list_t *wait_list = NULL;
+ 	struct list_head *pos;
+ 	long ret = 0;
+ 	unsigned long flags;

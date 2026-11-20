@@ -1,0 +1,13 @@
+[Unit]
+Description=beitlab Robotics MilkV duo OS: saved Wi-Fi connection
+Requires=beitlab-wifi.service
+Wants=beitlab-wifi-import.service
+After=beitlab-wifi.service beitlab-wifi-import.service
+
+[Service]
+ExecStart=/usr/sbin/wpa_supplicant -i wlan0 -D nl80211 -c /etc/wpa_supplicant/beitlab-wlan0.conf
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

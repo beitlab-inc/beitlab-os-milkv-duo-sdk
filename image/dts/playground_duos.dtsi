@@ -1,0 +1,85 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+ * beitlab Robotics MilkV duo OS device tree fragment.
+ *
+ * Included at the end of
+ *   build/boards/cv181x/sg2000_milkv_duos_glibc_arm64_sd/dts_arm64/
+ *     sg2000_milkv_duos_glibc_arm64_sd.dts
+ * by image/patches/0004. scripts/build-image.sh copies this file next to it.
+ *
+ * 1. C906L remoteproc. The carveout and the rproc node are the ones the
+ *    Milk-V v1 `arduino` branch added in 7221d232 to
+ *    cv181x_default_memmap.dtsi, with firmware-name changed to the
+ *    playground's file. CVIMMAP_FREERTOS_ADDR/SIZE come from the board
+ *    memmap.py (0x9fe00000 / 0x200000 at the pinned SDK commit); they are
+ *    the same region FSBL loads cvirtos.bin into and points the C906L reset
+ *    vector at (fsbl/plat/cv181x/platform.c reset_c906l()).
+ *
+ * 2. Carrier pads. Linux must not claim the controllers or pads that
+ *    ../Balanced_robot/include/balance/board_carrier.h gives to the C906:
+ *    SPI3, I2C4, PWM controllers 0-2 and the named GPIOs. At the pinned SDK
+ *    commit the board DT claims, through those, the following carrier pads:
+ *      spi3 + spidev@0 ............ B13 B14 B15 B16 (SPI3 SDO/SDI/SCK/CS)
+ *      i2c4 + goodix gt9xx@14 ..... B1 B2 (I2C4), and porta 18/19 = A18 A19
+ *                                   (knee PWM pads) as TP irq/reset GPIOs
+ *      pwm0 pwm1 pwm2 ............. wheel and knee PWM controllers
+ *      vo, mipi_tx ................ porte 0/1/2 as pwm/power-ct/reset GPIOs;
+ *                                   E0 E1 E2 are the left-wheel PWM pads
+ *    All of them are disabled here. No other node in the include chain
+ *    references a pad from board_carrier.h (docs/sdk-notes.md lists every
+ *    GPIO property that remains and its pad).
+ *
+ * Linux keeps: ethernet0, usb, sd, uart0 (console), rtos_cmdqu (mailbox),
+ * fast_image, the GPIO controllers themselves, and pwm3.
+ */
+
+/ {
+	reserved-memory {
+		#size-cells = <0x2>;
+		#address-cells = <0x2>;
+		ranges;
+
+		c906l: rtos_dram@CVIMMAP_FREERTOS_ADDR {
+			reg = <0x0 CVIMMAP_FREERTOS_ADDR 0x0 CVIMMAP_FREERTOS_SIZE>;
+			no-map;
+		};
+	};
+
+	c906l_rproc: c906l_rproc@0 {
+		compatible = "cvitek,cv18xx-c906l-rproc";
+		memory-region = <&c906l>;
+		core-name = "cv18xx-c906l";
+		firmware-name = "playground.elf";
+		status = "okay";
+	};
+};
+
+/* ---- carrier pads: release to the C906 ---- */
+
+&spi3 {
+	status = "disabled";
+};
+
+&i2c4 {
+	status = "disabled";
+};
+
+&pwm0 {
+	status = "disabled";
+};
+
+&pwm1 {
+	status = "disabled";
+};
+
+&pwm2 {
+	status = "disabled";
+};
+
+&vo {
+	status = "disabled";
+};
+
+&mipi_tx {
+	status = "disabled";
+};

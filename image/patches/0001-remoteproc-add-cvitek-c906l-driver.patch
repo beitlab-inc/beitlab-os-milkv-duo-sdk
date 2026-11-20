@@ -1,0 +1,362 @@
+From: beitlab Robotics MilkV duo OS <image/patches>
+Subject: [PATCH 1/7] remoteproc: add cvitek C906L driver (Milk-V arduino branch)
+
+Source: https://github.com/milkv-duo/duo-buildroot-sdk (v1 SDK), branch
+`arduino` at 7bb22e4bb73be3c1f3fba00fb20a121d725db7ac. Combined, unmodified:
+
+  7221d23254b821b1bd418fad75c303f84739b857
+      carbon <carbon@milkv.io>, 2024-02-26
+      "add remoteproc and burn support for arduino"
+      -> drivers/remoteproc/{Kconfig,Makefile,cvitek_remoteproc.c},
+         drivers/of/of_reserved_mem.c, include/linux/of_reserved_mem.h
+  9656a539ffe9cce53344f65a66c1cc7f96ae224f
+      GP Orcullo <kinsamanka@gmail.com>, 2024-03-13
+      "allow processor enough time to reset"
+  06c23aefe11b08f98fe1c29d67808d4dffb62d3f
+      GP Orcullo <kinsamanka@gmail.com>, 2024-03-13
+      "Allow loading of firmware without resource tables."
+      (merged as ce6499ac, PR #75 "remoteproc-fix")
+
+The RISC-V-only hunks of 7221d232 (arch/riscv setup.c/mm/init.c moving
+early_init_fdt_scan_reserved_mem) are not included: this image is arm64,
+where arch/arm64/mm/init.c already calls it. The DT node and defconfig
+lines of 7221d232 are carried by 0003/0004 and image/dts/.
+
+Applies to duo-buildroot-sdk-v2 6f8962c394dd0a05729abb089f0feb7d5cc4aa5e
+with `git apply` and no fuzz (see docs/sdk-notes.md).
+---
+diff --git a/linux_5.10/drivers/of/of_reserved_mem.c b/linux_5.10/drivers/of/of_reserved_mem.c
+index 29750d72..bbc072ac 100644
+--- a/linux_5.10/drivers/of/of_reserved_mem.c
++++ b/linux_5.10/drivers/of/of_reserved_mem.c
+@@ -69,7 +69,11 @@ void __init fdt_reserved_mem_save_node(unsigned long node, const char *uname,
+ 	}
+ 
+ 	rmem->fdt_node = node;
++#if defined(CONFIG_ARCH_CVITEK) && !defined(CONFIG_CVITEK_REMOTEPROC)
+ 	strncpy(rmem->name, uname, 8);
++#else
++	rmem->name = uname;
++#endif
+ 	rmem->base = base;
+ 	rmem->size = size;
+ 
+diff --git a/linux_5.10/drivers/remoteproc/Kconfig b/linux_5.10/drivers/remoteproc/Kconfig
+index d99548fb..bea63423 100644
+--- a/linux_5.10/drivers/remoteproc/Kconfig
++++ b/linux_5.10/drivers/remoteproc/Kconfig
+@@ -288,6 +288,14 @@ config TI_K3_R5_REMOTEPROC
+ 	  It's safe to say N here if you're not interested in utilizing
+ 	  a slave processor.
+ 
++config CVITEK_REMOTEPROC
++	tristate "cvitek remoteproc support"
++	depends on ARCH_CVITEK
++	help
++	  Say y here to support CVITEK's processors via the remote
++	  processor framework.
++	  This can be either built-in or a loadable module.
++
+ endif # REMOTEPROC
+ 
+ endmenu
+diff --git a/linux_5.10/drivers/remoteproc/Makefile b/linux_5.10/drivers/remoteproc/Makefile
+index da2ace4e..01f78f84 100644
+--- a/linux_5.10/drivers/remoteproc/Makefile
++++ b/linux_5.10/drivers/remoteproc/Makefile
+@@ -34,3 +34,4 @@ obj-$(CONFIG_ST_SLIM_REMOTEPROC)	+= st_slim_rproc.o
+ obj-$(CONFIG_STM32_RPROC)		+= stm32_rproc.o
+ obj-$(CONFIG_TI_K3_DSP_REMOTEPROC)	+= ti_k3_dsp_remoteproc.o
+ obj-$(CONFIG_TI_K3_R5_REMOTEPROC)	+= ti_k3_r5_remoteproc.o
++obj-$(CONFIG_CVITEK_REMOTEPROC)	+= cvitek_remoteproc.o
+diff --git a/linux_5.10/include/linux/of_reserved_mem.h b/linux_5.10/include/linux/of_reserved_mem.h
+index e418313a..ea6c8735 100644
+--- a/linux_5.10/include/linux/of_reserved_mem.h
++++ b/linux_5.10/include/linux/of_reserved_mem.h
+@@ -9,7 +9,11 @@ struct of_phandle_args;
+ struct reserved_mem_ops;
+ 
+ struct reserved_mem {
++#if defined(CONFIG_ARCH_CVITEK) && !defined(CONFIG_CVITEK_REMOTEPROC)
+ 	char				name[8];
++#else
++	char				*name;
++#endif
+ 	unsigned long			fdt_node;
+ 	unsigned long			phandle;
+ 	const struct reserved_mem_ops	*ops;
+diff --git a/linux_5.10/drivers/remoteproc/cvitek_remoteproc.c b/linux_5.10/drivers/remoteproc/cvitek_remoteproc.c
+new file mode 100644
+index 00000000..d31ba16a
+--- /dev/null
++++ b/linux_5.10/drivers/remoteproc/cvitek_remoteproc.c
+@@ -0,0 +1,268 @@
++// SPDX-License-Identifier: GPL-2.0
++#include <linux/clk.h>
++#include <linux/delay.h>
++#include <linux/dma-mapping.h>
++#include <linux/err.h>
++#include <linux/interrupt.h>
++#include <linux/kernel.h>
++#include <linux/mailbox_client.h>
++#include <linux/mfd/syscon.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
++#include <linux/of_device.h>
++#include <linux/of_reserved_mem.h>
++#include <linux/platform_device.h>
++#include <linux/regmap.h>
++#include <linux/remoteproc.h>
++#include <linux/reset.h>
++
++#include "remoteproc_internal.h"
++
++#define SEC_SUBSYS_BASE 0x02000000
++#define SEC_SYS_BASE (SEC_SUBSYS_BASE + 0x000B0000)
++#define SEC_CLK_ADDR ((__u32)0x3003024)
++
++struct cvitek_rproc_mem {
++	void __iomem *cpu_addr;
++	phys_addr_t bus_addr;
++	u32 dev_addr;
++	size_t size;
++};
++
++struct cvitek_rproc {
++	struct rproc *rproc;
++	struct cvitek_rproc_mem mem[4];
++	struct reset_control *reset;
++	struct clk *clk;
++	u32 clk_rate;
++	struct regmap *boot_base;
++	u32 boot_offset;
++	int num_mems;
++	struct platform_device *pdev;
++};
++
++static inline void clrbits_32(void __iomem *reg, u32 clear)
++{
++	iowrite32((ioread32(reg) & ~clear), reg);
++}
++
++static inline void setbits_32(void __iomem *reg, u32 set)
++{
++	iowrite32(ioread32(reg) | set, reg);
++}
++
++static int cvitek_rproc_start(struct rproc *rproc)
++{
++	struct device *dev = rproc->dev.parent;
++
++	void __iomem *clk_reset = ioremap(SEC_CLK_ADDR, 4);
++
++	clrbits_32(clk_reset, 1 << 6);
++
++	udelay(10);
++
++	setbits_32(clk_reset, 1 << 6);
++
++	iounmap(clk_reset);
++
++	dev_info(dev, "Started from 0x%llx\n", rproc->bootaddr);
++
++	return 0;
++}
++
++static int cvitek_rproc_stop(struct rproc *rproc)
++{
++	void __iomem *clk_reset = ioremap(SEC_CLK_ADDR, 4);
++
++	clrbits_32(clk_reset, 1 << 6);
++
++	iounmap(clk_reset);
++
++	return 0;
++}
++
++static int cvitek_rproc_mem_alloc(struct rproc *rproc,
++				  struct rproc_mem_entry *mem)
++{
++	struct device *dev = rproc->dev.parent;
++	void *va;
++
++	va = ioremap_wc(mem->dma, mem->len);
++	if (!va) {
++		dev_err(dev, "Unable to map memory region: %pa+%zx\n",
++			&mem->dma, mem->len);
++		return -ENOMEM;
++	}
++
++	/* Update memory entry va */
++	mem->va = va;
++
++	return 0;
++}
++
++static int cvitek_rproc_mem_release(struct rproc *rproc,
++				    struct rproc_mem_entry *mem)
++{
++	iounmap(mem->va);
++
++	return 0;
++}
++
++static int cvitek_rproc_parse_fw(struct rproc *rproc, const struct firmware *fw)
++{
++	struct device *dev = rproc->dev.parent;
++	struct device_node *np = dev->of_node;
++	struct rproc_mem_entry *mem;
++	struct reserved_mem *rmem;
++	struct of_phandle_iterator it;
++	int index = 0;
++
++	of_phandle_iterator_init(&it, np, "memory-region", NULL, 0);
++	while (of_phandle_iterator_next(&it) == 0) {
++		rmem = of_reserved_mem_lookup(it.node);
++		if (!rmem) {
++			dev_err(dev, "unable to acquire memory-region\n");
++			return -EINVAL;
++		}
++
++		/*  No need to map vdev buffer */
++		if (strcmp(it.node->name, "vdev0buffer")) {
++			/* Register memory region */
++			mem = rproc_mem_entry_init(
++				dev, NULL, (dma_addr_t)rmem->base, rmem->size,
++				rmem->base, cvitek_rproc_mem_alloc,
++				cvitek_rproc_mem_release, it.node->name);
++		} else {
++			/* Register reserved memory for vdev buffer allocation */
++			mem = rproc_of_resm_mem_entry_init(dev, index,
++							   rmem->size,
++							   rmem->base,
++							   it.node->name);
++		}
++
++		if (!mem)
++			return -ENOMEM;
++
++		rproc_add_carveout(rproc, mem);
++		index++;
++	}
++
++	if (rproc_elf_load_rsc_table(rproc, fw))
++		dev_warn(&rproc->dev, "no resource table found for this firmware\n");
++
++	return 0;
++}
++
++static const struct rproc_ops cvitek_rproc_ops = {
++	.start = cvitek_rproc_start,
++	.stop = cvitek_rproc_stop,
++	.parse_fw = cvitek_rproc_parse_fw,
++	.load = rproc_elf_load_segments,
++	.find_loaded_rsc_table = rproc_elf_find_loaded_rsc_table,
++	.sanity_check = rproc_elf_sanity_check,
++	.get_boot_addr = rproc_elf_get_boot_addr,
++};
++
++static const struct of_device_id cvitek_rproc_match[] = {
++	{ .compatible = "cvitek,cv18xx-c906l-rproc", },
++	{},
++};
++MODULE_DEVICE_TABLE(of, cvitek_rproc_match);
++
++static const char *cvitek_rproc_get_firmware(struct platform_device *pdev)
++{
++	const char *fw_name;
++	int ret;
++
++	ret = of_property_read_string(pdev->dev.of_node, "firmware-name",
++				      &fw_name);
++	if (ret)
++		return ERR_PTR(ret);
++
++	return fw_name;
++}
++
++static int cvitek_rproc_parse_dt(struct platform_device *pdev)
++{
++	//TODO
++	return 0;
++}
++
++static int cvitek_rproc_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	const struct of_device_id *match;
++	struct cvitek_rproc *cproc;
++	struct device_node *np = dev->of_node;
++	struct rproc *rproc;
++	const char *firmware;
++	int ret;
++	int i;
++
++	match = of_match_device(cvitek_rproc_match, dev);
++	if (!match) {
++		dev_err(dev, "No device match found\n");
++		return -ENODEV;
++	}
++
++	firmware = cvitek_rproc_get_firmware(pdev);
++	if (IS_ERR(firmware))
++		return PTR_ERR(firmware);
++
++	rproc = rproc_alloc(dev, dev_name(dev), &cvitek_rproc_ops, firmware,
++			    sizeof(*cproc));
++	if (!rproc)
++		return -ENOMEM;
++
++	cproc = rproc->priv;
++
++	rproc->has_iommu = false;
++	cproc->pdev = pdev;
++
++	platform_set_drvdata(pdev, rproc);
++
++	ret = cvitek_rproc_parse_dt(pdev);
++	if (ret)
++		goto free_rproc;
++
++	ret = rproc_add(rproc);
++	if (ret)
++		goto free_clk;
++
++	return 0;
++
++free_clk:
++	clk_unprepare(cproc->clk);
++
++free_rproc:
++	rproc_free(rproc);
++	return ret;
++}
++
++static int cvitek_rproc_remove(struct platform_device *pdev)
++{
++	struct rproc *rproc = platform_get_drvdata(pdev);
++	struct cvitek_rproc *cproc = rproc->priv;
++	int i;
++
++	rproc_del(rproc);
++
++	clk_disable_unprepare(cproc->clk);
++
++	rproc_free(rproc);
++
++	return 0;
++}
++
++static struct platform_driver cvitek_rproc_driver = {
++	.probe = cvitek_rproc_probe,
++	.remove = cvitek_rproc_remove,
++	.driver = {
++		.name = "cvitek-rproc",
++		.of_match_table = of_match_ptr(cvitek_rproc_match),
++	},
++};
++module_platform_driver(cvitek_rproc_driver);
++MODULE_DESCRIPTION("Cvitek Remote Processor Control Driver");
++MODULE_LICENSE("GPL v2");
+\ No newline at end of file

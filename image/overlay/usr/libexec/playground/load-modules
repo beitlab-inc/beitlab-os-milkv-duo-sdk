@@ -1,0 +1,30 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Load the kernel modules the playground needs, from /mnt/system/ko where
+# the SDK installs them.
+#
+# Order follows the stock device/generic/rootfs_overlay/duos/mnt/system/ko/
+# loadsystemko.sh for the modules kept: sys, base, rtos_cmdqu, fast_image,
+# clock_cooling. fast_image probes before the C906L remoteproc driver, so
+# its LINUX_INIT_DONE handshake reaches the program FSBL started.
+#
+# cvitek_remoteproc (image/patches/0001) comes last. On probe it auto-boots
+# its firmware-name, /lib/firmware/playground.elf, through remoteproc.
+#
+# Not loaded, on purpose: camera/ISP/video/display modules (vi, vpss, dwa,
+# vo, mipi_rx, mipi_tx, rgn, vcodec, jpeg, tpu, ive), cv181x_pwm, and the
+# BT modules. Wi-Fi is loaded separately by beitlab-wifi.service. mipi_tx
+# and pwm would claim carrier pads, which the device tree disables.
+KO=/mnt/system/ko
+rc=0
+for m in cv181x_sys cv181x_base cv181x_rtos_cmdqu cv181x_fast_image \
+         cv181x_clock_cooling cvitek_remoteproc; do
+  [ -d "/sys/module/$m" ] && continue
+  if [ ! -f "$KO/$m.ko" ]; then
+    echo "playground: $KO/$m.ko missing" >&2
+    rc=1
+    continue
+  fi
+  insmod "$KO/$m.ko" || { echo "playground: insmod $m failed" >&2; rc=1; }
+done
+exit $rc

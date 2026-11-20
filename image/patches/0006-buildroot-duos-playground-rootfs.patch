@@ -1,0 +1,96 @@
+From: beitlab Robotics MilkV duo OS <image/patches>
+Subject: [PATCH 6/7] buildroot: duos arm64 sd playground rootfs
+
+Local change to configs/milkv-duos-glibc-arm64-sd_defconfig.
+
+- Init: systemd (PROMPT.md requires rtos-agent.service). Buildroot 2025.02
+  systemd depends on BR2_TOOLCHAIN_GCC_AT_LEAST_8; the SDK's external
+  Linaro 7.3.1 toolchain cannot provide it, so the rootfs toolchain is the
+  Buildroot-listed Bootlin "aarch64 glibc stable 2024.05-1" (gcc 13, kernel
+  headers 4.19 <= the 5.10 kernel). The kernel, u-boot, FSBL and SDK
+  middleware are still built with host-tools as before; their glibc
+  binaries keep working on the newer glibc.
+- Identity: hostname beitlab-milkv-duo, root password playground.
+- SSH: OpenSSH replaces Dropbear (and gesftpserver, whose sftp-server
+  OpenSSH provides). sshd_config comes from the playground overlay.
+- mDNS: avahi-daemon.
+- No Python on the device (PROMPT.md "Agent").
+- dnsmasq removed: under systemd it would start a DHCP server on the
+  Ethernet LAN; the stock image only ran it for USB RNDIS, which this
+  image does not configure.
+- systemd-networkd/resolved off: dhcpcd (already in the stock image) keeps
+  configuring eth0.
+---
+diff --git a/buildroot/configs/milkv-duos-glibc-arm64-sd_defconfig b/buildroot/configs/milkv-duos-glibc-arm64-sd_defconfig
+index 52613a97..0bdd04fd 100644
+--- a/buildroot/configs/milkv-duos-glibc-arm64-sd_defconfig
++++ b/buildroot/configs/milkv-duos-glibc-arm64-sd_defconfig
+@@ -1,19 +1,13 @@
+ BR2_aarch64=y
+ BR2_TOOLCHAIN_EXTERNAL=y
+-BR2_TOOLCHAIN_EXTERNAL_CUSTOM=y
+-BR2_TOOLCHAIN_EXTERNAL_PATH="$(TOPDIR)/../host-tools/gcc/gcc-linaro-7.3.1-2018.05-x86_64_aarch64-linux-gnu"
+-BR2_TOOLCHAIN_EXTERNAL_CUSTOM_PREFIX="aarch64-linux-gnu"
+-BR2_TOOLCHAIN_EXTERNAL_GCC_7=y
+-BR2_TOOLCHAIN_EXTERNAL_HEADERS_4_10=y
+-BR2_TOOLCHAIN_EXTERNAL_CUSTOM_GLIBC=y
+-BR2_TOOLCHAIN_EXTERNAL_CXX=y
+-BR2_TOOLCHAIN_EXTERNAL_FORTRAN=y
+-BR2_TOOLCHAIN_EXTERNAL_OPENMP=y
++BR2_TOOLCHAIN_EXTERNAL_BOOTLIN=y
++BR2_TOOLCHAIN_EXTERNAL_BOOTLIN_AARCH64_GLIBC_STABLE=y
+ BR2_OPTIMIZE_S=y
+ BR2_PER_PACKAGE_DIRECTORIES=y
+-BR2_TARGET_GENERIC_HOSTNAME="milkv-duo"
+-BR2_TARGET_GENERIC_ISSUE="Welcome to Milk-V DuoS ARM64 SD"
+-BR2_TARGET_GENERIC_ROOT_PASSWD="milkv"
++BR2_TARGET_GENERIC_HOSTNAME="beitlab-milkv-duo"
++BR2_INIT_SYSTEMD=y
++BR2_TARGET_GENERIC_ISSUE="beitlab Robotics MilkV duo OS"
++BR2_TARGET_GENERIC_ROOT_PASSWD="playground"
+ BR2_ROOTFS_OVERLAY="board/milkv/milkv-duos-glibc-arm64-sd/overlay"
+ BR2_PACKAGE_BUSYBOX_SHOW_OTHERS=y
+ BR2_PACKAGE_ALSA_UTILS=y
+@@ -42,14 +36,6 @@ BR2_PACKAGE_EVTEST=y
+ BR2_PACKAGE_I2C_TOOLS=y
+ BR2_PACKAGE_PARTED=y
+ BR2_PACKAGE_SPI_TOOLS=y
+-BR2_PACKAGE_PYTHON3=y
+-BR2_PACKAGE_PYTHON3_PY_PYC=y
+-BR2_PACKAGE_PYTHON3_BZIP2=y
+-BR2_PACKAGE_PYTHON3_READLINE=y
+-BR2_PACKAGE_PYTHON3_SQLITE=y
+-BR2_PACKAGE_PYTHON3_XZ=y
+-BR2_PACKAGE_PYTHON_PIP=y
+-BR2_PACKAGE_PYTHON_REQUESTS=y
+ BR2_PACKAGE_CA_CERTIFICATES=y
+ BR2_PACKAGE_LIBOPENSSL_BIN=y
+ BR2_PACKAGE_LIBOPENSSL_ENGINES=y
+@@ -74,17 +60,17 @@ BR2_PACKAGE_BLUEZ5_UTILS_PLUGINS_HEALTH=y
+ BR2_PACKAGE_BLUEZ5_UTILS_PLUGINS_HID=y
+ BR2_PACKAGE_BLUEZ5_UTILS_PLUGINS_MIDI=y
+ BR2_PACKAGE_BLUEZ5_UTILS_PLUGINS_NFC=y
++BR2_PACKAGE_AVAHI=y
++BR2_PACKAGE_AVAHI_DAEMON=y
+ BR2_PACKAGE_DHCPCD=y
+-BR2_PACKAGE_DNSMASQ=y
+-BR2_PACKAGE_DROPBEAR=y
+ BR2_PACKAGE_ETHTOOL=y
+-BR2_PACKAGE_GESFTPSERVER=y
+ BR2_PACKAGE_IPERF3=y
+ BR2_PACKAGE_IW=y
+ BR2_PACKAGE_NETCAT=y
+ BR2_PACKAGE_NTP=y
+ BR2_PACKAGE_NTP_NTPDATE=y
+ BR2_PACKAGE_NTP_NTPTIME=y
++BR2_PACKAGE_OPENSSH=y
+ BR2_PACKAGE_WGET=y
+ BR2_PACKAGE_WPA_SUPPLICANT=y
+ BR2_PACKAGE_WPA_SUPPLICANT_WPS=y
+@@ -109,3 +95,6 @@ BR2_TARGET_ROOTFS_EXT2_4=y
+ BR2_TARGET_ROOTFS_EXT2_SIZE="786432K"
+ BR2_TARGET_ROOTFS_TAR_XZ=y
+ BR2_PACKAGE_HOST_GENIMAGE=y
++# BR2_PACKAGE_SYSTEMD_NETWORKD is not set
++# BR2_PACKAGE_SYSTEMD_RESOLVED is not set
++BR2_ROOTFS_DEVICE_TABLE="system/device_table.txt $(TOPDIR)/../device/milkv-duos-glibc-arm64-sd/permissions.txt"

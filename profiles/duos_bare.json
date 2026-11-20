@@ -1,0 +1,33 @@
+{
+  "id": "duos_bare",
+  "description": "Milk-V Duo S without a carrier, using this repository's Linux image",
+  "sources": [
+    "https://milkv.io/docs/duo/getting-started/duos#header-j3",
+    "https://milkv.io/docs/duo/getting-started/duos#blue-led-pin",
+    "sdk.lock: build/boards/cv181x/sg2000_milkv_duos_glibc_arm64_sd/u-boot/cvi_board_init.c",
+    "image/dts/playground_duos.dtsi; docs/sdk-notes.md: Carrier pin ownership"
+  ],
+  "pins": {
+    "A18": {"owner": "application", "function": "gpio_output", "voltage": "3.3", "connector": "J3-22", "purpose": "GPIO; stock U-Boot selects XGPIOA_18"},
+    "A19": {"owner": "application", "function": "gpio_output", "voltage": "3.3", "connector": "J3-18", "purpose": "GPIO; stock U-Boot selects XGPIOA_19"},
+    "A20": {"owner": "application", "function": "gpio_output", "voltage": "3.3", "connector": "J3-16", "purpose": "GPIO; stock U-Boot selects XGPIOA_20"},
+    "A28": {"owner": "application", "function": "gpio_output", "voltage": "3.3", "connector": "J3-26", "purpose": "GPIO; stock U-Boot selects XGPIOA_28"},
+    "A29": {"owner": "application", "function": "gpio_output", "voltage": "3.3", "connector": "onboard LED", "purpose": "blue LED; stock U-Boot selects XGPIOA_29"},
+    "A13": {"owner": "linux", "purpose": "SD card detection"},
+    "A15": {"owner": "linux", "purpose": "Wi-Fi power"},
+    "A16": {"owner": "linux", "purpose": "UART0 console TX"},
+    "A17": {"owner": "linux", "purpose": "UART0 console RX"},
+    "B5": {"owner": "linux", "purpose": "USB VBUS mux"},
+    "B6": {"owner": "linux", "purpose": "USB VBUS device-tree claim"},
+    "E7": {"owner": "linux", "purpose": "Wi-Fi wakeup"},
+    "E9": {"owner": "linux", "purpose": "Bluetooth power"},
+    "E10": {"owner": "linux", "purpose": "Wi-Fi/Bluetooth clock"}
+  },
+  "reserved_resources": {
+    "uart0": "Linux console",
+    "ethernet0": "Linux networking",
+    "usb": "Linux USB",
+    "sd": "Linux boot storage",
+    "mailbox": "shared Linux/C906 runtime transport"
+  }
+}

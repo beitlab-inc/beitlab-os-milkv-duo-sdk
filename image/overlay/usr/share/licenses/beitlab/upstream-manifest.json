@@ -1,0 +1,88 @@
+{
+  "sdk_url": "https://github.com/milkv-duo/duo-buildroot-sdk-v2",
+  "sdk_commit": "6f8962c394dd0a05729abb089f0feb7d5cc4aa5e",
+  "scope": "selected upstream notices; not a complete image license inventory",
+  "files": [
+    {
+      "file": "linux-COPYING.txt",
+      "sdk_path": "linux_5.10/COPYING",
+      "sha256": "fb5a425bd3b3cd6071a3a9aff9909a859e7c1158d54d32e07658398cd67eb6a0"
+    },
+    {
+      "file": "linux-GPL-2.0.txt",
+      "sdk_path": "linux_5.10/LICENSES/preferred/GPL-2.0",
+      "sha256": "f6b78c087c3ebdf0f3c13415070dd480a3f35d8fc76f3d02180a407c1c812f79"
+    },
+    {
+      "file": "linux-syscall-note.txt",
+      "sdk_path": "linux_5.10/LICENSES/exceptions/Linux-syscall-note",
+      "sha256": "8e378ab93586eb55135d3bc119cce787f7324f48394777d00c34fa3d0be3303f"
+    },
+    {
+      "file": "u-boot-README.txt",
+      "sdk_path": "u-boot-2021.10/Licenses/README",
+      "sha256": "050bd541ef2ab90bb0b55359756832bb9281b4554be0e9be6b33eea3be8669f0"
+    },
+    {
+      "file": "u-boot-GPL-2.0.txt",
+      "sdk_path": "u-boot-2021.10/Licenses/gpl-2.0.txt",
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+    },
+    {
+      "file": "u-boot-Exceptions.txt",
+      "sdk_path": "u-boot-2021.10/Licenses/Exceptions",
+      "sha256": "3b4731b3cb8f1920b529d8926446e4a922a025aa9d9278531c511cb9d88cbd65"
+    },
+    {
+      "file": "buildroot-COPYING.txt",
+      "sdk_path": "buildroot/COPYING",
+      "sha256": "9755181e27175cb3510b4da8629caa406fb355a19aa8e7d55f06bf8ab33323c4"
+    },
+    {
+      "file": "freertos-LICENSE.txt",
+      "sdk_path": "freertos/License/license.txt",
+      "sha256": "a7e2e701fa72d04dc18ca382b42e337b5a2d0abca681db6e5632211c43b8a1e7"
+    },
+    {
+      "file": "freertos-Source-LICENSE.txt",
+      "sdk_path": "freertos/Source/LICENSE.md",
+      "sha256": "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1"
+    },
+    {
+      "file": "sophgo-tdl-LICENSE.txt",
+      "sdk_path": "tdl_sdk/LICENSE",
+      "sha256": "8c000d0c35b9ca0169cde4c06cccd63fc5dbf57937d0ce4d72cbe2f94bfcd4d7"
+    },
+    {
+      "file": "opensbi-COPYING.BSD.txt",
+      "sdk_path": "opensbi/COPYING.BSD",
+      "sha256": "82d13fb1bf6bb162629deeea9eb9c117e74548d3b707e478967691fe79a68e21"
+    },
+    {
+      "file": "fsbl-lz4-LICENSE.txt",
+      "sdk_path": "fsbl/lib/lz4/LICENSE",
+      "sha256": "d15d99c8dc6b0ec22174c0e563a95bc40f9363ca7f9d9d793bb5c5a8e8d0af71"
+    },
+    {
+      "file": "fsbl-libtommath-LICENSE.txt",
+      "sdk_path": "fsbl/lib/libtommath/LICENSE",
+      "sha256": "2fa64b163659f41965c9815882a8296d3d03ff546b76153e11445f9bdecf955a"
+    },
+    {
+      "file": "fsbl-libtomcrypt-LICENSE.txt",
+      "sdk_path": "fsbl/lib/libtomcrypt/LICENSE",
+      "sha256": "8f196cb13afd271f5e267fd29543fc454596382ad580e7592709492843996ac8"
+    },
+    {
+      "file": "fsbl-BigDigits-LICENSE.txt",
+      "sdk_path": "fsbl/lib/BigDigits/LICENSE.txt",
+      "sha256": "cde215e5b42363eb28ca2462c4558ff4807b38f383c537624c31e44657ac58f4"
+    },
+    {
+      "file": "freertos-kernel-header.txt",
+      "sdk_path": "freertos/Source/include/FreeRTOS.h",
+      "selection": "initial comment, verbatim, plus newline",
+      "sha256": "3f79d9dbda6806c5f00d49a8cc6a9695d1738c1a02c1858ec63d8ab813628a90"
+    }
+  ]
+}

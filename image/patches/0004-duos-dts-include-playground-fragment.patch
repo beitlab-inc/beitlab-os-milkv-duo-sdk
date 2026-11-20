@@ -1,0 +1,26 @@
+From: beitlab Robotics MilkV duo OS <image/patches>
+Subject: [PATCH 4/7] duos arm64 sd: include the playground device tree fragment
+
+Local change. The fragment itself lives in duo-s-playground at
+image/dts/playground_duos.dtsi and is copied next to the board dts by
+scripts/build-image.sh, so the DT source of truth stays in the playground
+repository. The SDK kernel-dts rule symlinks every *.dts* of dts_arm64/
+into arch/arm64/boot/dts/cvitek/, so the include resolves there.
+
+The fragment adds the C906L carveout and remoteproc node from 7221d232
+(Milk-V v1 `arduino` branch) and disables the Linux claims on the carrier
+pads; it is quoted in docs/sdk-notes.md.
+---
+diff --git a/build/boards/cv181x/sg2000_milkv_duos_glibc_arm64_sd/dts_arm64/sg2000_milkv_duos_glibc_arm64_sd.dts b/build/boards/cv181x/sg2000_milkv_duos_glibc_arm64_sd/dts_arm64/sg2000_milkv_duos_glibc_arm64_sd.dts
+index 6e243a58..52e9a60d 100644
+--- a/build/boards/cv181x/sg2000_milkv_duos_glibc_arm64_sd/dts_arm64/sg2000_milkv_duos_glibc_arm64_sd.dts
++++ b/build/boards/cv181x/sg2000_milkv_duos_glibc_arm64_sd/dts_arm64/sg2000_milkv_duos_glibc_arm64_sd.dts
+@@ -111,3 +111,8 @@
+ &uart4 {
+ 	status = "okay";
+ };
++
++/* beitlab Robotics MilkV duo OS: C906L remoteproc and carrier pad release.
++ * The file is installed next to this one by scripts/build-image.sh from
++ * duo-s-playground/image/dts/playground_duos.dtsi. */
++#include "playground_duos.dtsi"

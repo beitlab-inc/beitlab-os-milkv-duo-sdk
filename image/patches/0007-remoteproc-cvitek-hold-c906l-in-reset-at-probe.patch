@@ -1,0 +1,39 @@
+From: beitlab Robotics MilkV duo OS <image/patches>
+Subject: [PATCH 7/7] remoteproc: cvitek: hold the C906L in reset before auto-boot
+
+Local change on top of 0001, not from upstream.
+
+At power-on FSBL loads cvirtos.bin and releases the C906L
+(fsbl/plat/cv181x/platform.c reset_c906l()). When cvitek_remoteproc.ko
+probes, remoteproc reports the core "offline" although it is executing,
+and the auto-boot of firmware-name copies the ELF segments into the
+rtos_dram carveout while that program still runs from it; only then does
+cvitek_rproc_start() pulse the reset. The Milk-V arduino flow has the same
+window (its boot script writes "stop", which fails while offline, then
+"start").
+
+Asserting the same reset bit cvitek_rproc_stop() uses (0x3003024 bit 6),
+before rproc_add(), stops a core the bootloader started. Nothing else in
+the driver changes: start still clears and sets the bit, stop still clears
+it, and the reset vector FSBL programmed is left alone.
+---
+diff --git a/linux_5.10/drivers/remoteproc/cvitek_remoteproc.c b/linux_5.10/drivers/remoteproc/cvitek_remoteproc.c
+index d31ba16a6..53a400e72 100644
+--- a/linux_5.10/drivers/remoteproc/cvitek_remoteproc.c
++++ b/linux_5.10/drivers/remoteproc/cvitek_remoteproc.c
+@@ -226,6 +226,15 @@ static int cvitek_rproc_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		goto free_rproc;
+ 
++	/*
++	 * FSBL may already have started the C906L (BLCP_2ND, cvirtos.bin)
++	 * while remoteproc still reports it offline. Hold it in reset so the
++	 * auto-boot that rproc_add() triggers never copies segments into the
++	 * carveout under a running core; cvitek_rproc_start() releases it.
++	 */
++	cvitek_rproc_stop(rproc);
++	dev_info(dev, "C906L held in reset until firmware %s is loaded\n", firmware);
++
+ 	ret = rproc_add(rproc);
+ 	if (ret)
+ 		goto free_clk;

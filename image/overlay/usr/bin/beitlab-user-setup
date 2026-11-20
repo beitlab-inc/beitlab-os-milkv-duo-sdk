@@ -1,0 +1,28 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+set -eu
+[ -t 0 ] || exit 0
+[ ! -f /var/lib/beitlab/password-set ] || exit 0
+echo 'Regular account: beitlab. Root login is disabled; there is no default password.'
+printf 'Set a password for beitlab administration/local login? [y/N] (30 seconds): '
+IFS= read -r -t 30 ANSWER || exit 0
+case "$ANSWER" in y|Y|yes|YES) ;; *) exit 0 ;; esac
+TTY_STATE=$(stty -g)
+trap 'stty "$TTY_STATE"; unset PASSWORD CONFIRM HASH' EXIT
+trap 'exit 1' INT TERM HUP
+stty -echo
+printf 'New beitlab password (hidden, at least 12 characters): '
+IFS= read -r -t 90 PASSWORD || exit 1
+printf '\nConfirm password: '
+IFS= read -r -t 90 CONFIRM || exit 1
+printf '\n'
+[ "${#PASSWORD}" -ge 12 ] && [ "${#PASSWORD}" -le 128 ] && [ "$PASSWORD" = "$CONFIRM" ] || {
+    echo 'Passwords must match and contain 12–128 characters.'; exit 1;
+}
+HASH=$(printf '%s\n' "$PASSWORD" | openssl passwd -6 -stdin)
+unset PASSWORD CONFIRM
+printf 'beitlab:%s\n' "$HASH" | chpasswd -e
+umask 077
+mkdir -p /var/lib/beitlab
+touch /var/lib/beitlab/password-set
+echo 'Password set. SSH remains key-only unless explicitly configured otherwise.'

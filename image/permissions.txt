@@ -1,0 +1,6 @@
+# Buildroot normalizes overlay modes; enforce private Wi-Fi credentials
+# during filesystem creation, after the overlay copy.
+# name                                      type mode uid gid major minor start inc count
+/etc/wpa_supplicant/beitlab-wlan0.conf        f    600  0   0   -     -     -     -   -
+/etc/sudoers                                f    440  0   0   -     -     -     -   -
+/home/beitlab                               d    700  1000 1000 -    -     -     -   -

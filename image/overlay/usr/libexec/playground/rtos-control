@@ -1,0 +1,31 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Narrow sudo interface for the regular operator account. Firmware arrives
+# on stdin, never through a path that root opens on the user's behalf.
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+umask 077
+refuse() { echo 'rtos-control: invalid command or arguments' >&2; exit 2; }
+case "${1:-}" in
+    status|recover|lock|unlock)
+        [ "$#" = 1 ] || refuse
+        exec /usr/bin/rtos-agent "$1" ;;
+    log)
+        [ "$#" = 1 ] || { [ "$#" = 2 ] && [ "$2" = -f ]; } || refuse
+        exec /usr/bin/rtos-agent "$@" ;;
+    ping)
+        [ "$#" = 2 ] || refuse
+        case "$2" in ''|*[!0-9]*) refuse ;; esac
+        [ "${#2}" -le 10 ] && [ "$2" -le 4294967295 ] || refuse
+        exec /usr/bin/host_ping "$2" ;;
+    load)
+        [ "$#" = 1 ] || refuse
+        TEMP=$(mktemp /run/rtos-upload.XXXXXX)
+        trap 'rm -f "$TEMP"' EXIT
+        trap 'exit 1' INT TERM HUP
+        dd bs=1048576 count=33 iflag=fullblock > "$TEMP" 2>/dev/null
+        [ "$(wc -c < "$TEMP")" -le 33554432 ] || refuse
+        /usr/bin/rtos-agent load "$TEMP" ;;
+    *) refuse ;;
+esac

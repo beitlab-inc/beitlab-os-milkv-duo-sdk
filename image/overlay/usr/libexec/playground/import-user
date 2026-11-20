@@ -1,0 +1,59 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Fixed account; the boot volume can supply a hash and an explicit SSH
+# password-login choice. Never source boot files or accept arbitrary users.
+set -eu
+umask 077
+SRC=/boot/playground/user.conf
+HASH=
+LOGIN=no
+if [ -f "$SRC" ]; then
+    if ! tr -d '\r' < "$SRC" | awk '
+        NR == 1 && /^password_hash=/ {
+            value=substr($0,15)
+            if (value != "" && value !~ /^\$6\$[a-zA-Z0-9.\/]+\$[a-zA-Z0-9.\/]+$/) bad=1
+            split(value, fields, "\\$")
+            if (value != "" && (length(fields[3]) < 1 || length(fields[3]) > 16 || length(fields[4]) != 86)) bad=1
+            next
+        }
+        NR == 2 && /^ssh_password_login=(yes|no)$/ { next }
+        { bad=1 }
+        END { exit !(NR==2 && !bad) }
+    '; then
+        echo 'beitlab: invalid user profile; account settings unchanged.' >&2
+        exit 1
+    fi
+    HASH=$(tr -d '\r' < "$SRC" | sed -n 's/^password_hash=//p')
+    LOGIN=$(tr -d '\r' < "$SRC" | sed -n 's/^ssh_password_login=//p')
+    [ "$LOGIN" != yes ] || [ -n "$HASH" ] || {
+        echo 'beitlab: SSH password login requires a user-chosen password.' >&2; exit 1;
+    }
+fi
+# Validate keys before enabling an otherwise locked key-only account.
+KEYS=/boot/playground/authorized_keys
+if [ -f "$KEYS" ]; then
+    ssh-keygen -l -f "$KEYS" >/dev/null || { echo 'beitlab: invalid public keys.' >&2; exit 1; }
+fi
+if [ -n "$HASH" ]; then
+    printf 'beitlab:%s\n' "$HASH" | chpasswd -e
+    mkdir -p /var/lib/beitlab
+    touch /var/lib/beitlab/password-set
+elif [ -f "$KEYS" ] && awk -F: '$1=="beitlab" && $2 ~ /^[!*]/ { found=1 } END { exit !found }' /etc/shadow; then
+    # OpenSSH without PAM rejects locked accounts even with a valid key.
+    # Use an undisclosed random password hash; SSH still requires a key.
+    HASH=$(openssl rand -base64 48 | openssl passwd -6 -stdin)
+    [ -n "$HASH" ] || exit 1
+    printf 'beitlab:%s\n' "$HASH" | chpasswd -e
+fi
+if [ -f "$SRC" ]; then
+    mkdir -p /etc/ssh/sshd_config.d
+    TEMP=$(mktemp /etc/ssh/sshd_config.d/.beitlab-user.XXXXXX)
+    trap 'rm -f "$TEMP"' EXIT
+    printf 'PasswordAuthentication %s\n' "$LOGIN" > "$TEMP"
+    chmod 600 "$TEMP"
+    mv -f "$TEMP" /etc/ssh/sshd_config.d/40-beitlab-user.conf
+    sync
+    rm -f "$SRC"
+    sync
+    echo 'beitlab: regular-user settings imported.'
+fi

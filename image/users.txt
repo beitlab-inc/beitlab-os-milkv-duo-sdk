@@ -1,0 +1,2 @@
+# username uid group gid password home shell supplementary-groups comment
+beitlab 1000 beitlab 1000 * /home/beitlab /bin/sh wheel,systemd-journal beitlab user

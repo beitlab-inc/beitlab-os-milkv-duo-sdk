@@ -1,0 +1,14 @@
+[Unit]
+Description=Install playground/authorized_keys for the regular beitlab account
+Requires=beitlab-user.service
+After=beitlab-user.service
+RequiresMountsFor=/boot
+Before=sshd.service
+ConditionPathExists=/boot/playground/authorized_keys
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/playground/install-keys
+
+[Install]
+WantedBy=multi-user.target

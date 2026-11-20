@@ -1,0 +1,37 @@
+From: beitlab Robotics MilkV duo OS <image/patches>
+Subject: [PATCH 3/7] duos arm64 sd: kernel config for remoteproc and systemd
+
+Local change. The remoteproc lines follow 7221d232 of the Milk-V v1
+`arduino` branch (CONFIG_REMOTEPROC=y, CONFIG_CVITEK_REMOTEPROC), with the
+driver as a module (see 0002) and without the rpmsg/virtio options, which
+no playground program uses.
+
+CONFIG_CGROUPS=y is required by systemd (the playground image uses systemd
+init, PROMPT.md "systemd"). Every other option systemd needs (DEVTMPFS,
+INOTIFY_USER, SIGNALFD, TIMERFD, EPOLL, FHANDLE, UNIX, TMPFS, SYSFS,
+PROC_FS) is already enabled by this defconfig or by its Kconfig default.
+
+scripts/build-image.sh greps the built .config for CONFIG_REMOTEPROC=y and
+CONFIG_CVITEK_REMOTEPROC=m and fails otherwise.
+---
+diff --git a/build/boards/cv181x/sg2000_milkv_duos_glibc_arm64_sd/linux/cvitek_sg2000_milkv_duos_glibc_arm64_sd_defconfig b/build/boards/cv181x/sg2000_milkv_duos_glibc_arm64_sd/linux/cvitek_sg2000_milkv_duos_glibc_arm64_sd_defconfig
+index 40715c55..df9fb0c2 100644
+--- a/build/boards/cv181x/sg2000_milkv_duos_glibc_arm64_sd/linux/cvitek_sg2000_milkv_duos_glibc_arm64_sd_defconfig
++++ b/build/boards/cv181x/sg2000_milkv_duos_glibc_arm64_sd/linux/cvitek_sg2000_milkv_duos_glibc_arm64_sd_defconfig
+@@ -5,6 +5,7 @@ CONFIG_NO_HZ_IDLE=y
+ CONFIG_HIGH_RES_TIMERS=y
+ CONFIG_PREEMPT=y
+ CONFIG_LOG_BUF_SHIFT=15
++CONFIG_CGROUPS=y
+ CONFIG_BLK_DEV_INITRD=y
+ CONFIG_CC_OPTIMIZE_FOR_SIZE=y
+ # CONFIG_SYSFS_SYSCALL is not set
+@@ -222,6 +223,8 @@ CONFIG_ION_CMA_HEAP=y
+ CONFIG_FB_TFT=y
+ CONFIG_FB_TFT_ST7789V=y
+ # CONFIG_IOMMU_SUPPORT is not set
++CONFIG_REMOTEPROC=y
++CONFIG_CVITEK_REMOTEPROC=m
+ CONFIG_CV1835_SYSDMA_REMAP=y
+ CONFIG_CVI_WIFI_PIN=y
+ CONFIG_PWM=y

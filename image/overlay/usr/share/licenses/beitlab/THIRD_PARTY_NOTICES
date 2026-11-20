@@ -1,0 +1,34 @@
+beitlab Robotics MilkV duo OS — third-party acknowledgements
+
+This is a beitlab customization of the Milk-V Duo S Linux SDK. It is not
+an official Milk-V OS release. The beitlab product name does not replace
+upstream ownership, copyright notices or component license terms.
+
+SDK: Milk-V Duo series Buildroot SDK V2
+https://github.com/milkv-duo/duo-buildroot-sdk-v2
+Pinned revision: 6f8962c394dd0a05729abb089f0feb7d5cc4aa5e
+
+Thanks to Milk-V, Sophgo/CVITEK, the Linux kernel and U-Boot contributors,
+the Buildroot project, Amazon/FreeRTOS contributors, AIC Semiconductor,
+RivieraWaves, and the authors of the included userspace packages and
+support libraries, including OpenSSH, OpenSSL, systemd, BusyBox, glibc,
+dhcpcd, wpa_supplicant and Avahi.
+
+Selected upstream notices are preserved under
+/usr/share/licenses/beitlab/upstream/ in images built with this overlay.
+The source repository also contains them at
+image/overlay/usr/share/licenses/beitlab/upstream/.
+
+The SDK contains components under different licenses. Linux, U-Boot and
+several userspace components have GPL/LGPL obligations; FreeRTOS uses
+MIT; Sophgo TDL SDK has a BSD-2-Clause license; individual files and
+third-party dependencies may have other terms. No single license is
+claimed for the entire SDK or image.
+
+These acknowledgements and selected license texts are not a complete
+license inventory or a complete corresponding-source distribution.
+Before distributing a release, collect and review Buildroot legal-info,
+supply the required source/configuration/patches/build scripts, and
+resolve the redistribution terms of vendor firmware and other SDK files
+without explicit accompanying licenses. See docs/LICENSING.md in the
+source repository for the review and remaining release work.
