@@ -70,6 +70,10 @@ class Console:
         self.transcript = b""
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
+            # Noninteractive CI parents can ignore SIGINT. Reset before
+            # exec: POSIX shells cannot trap a signal inherited as ignored.
+            for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+                signal.signal(sig, signal.SIG_DFL)
             env = dict(os.environ, WIFI_TEST_ROOT=str(root), PATH=f"{root}/bin:" + os.environ["PATH"])
             # The wrapper records terminal flags after the wizard exits.
             os.execve(shutil.which("busybox"), ["busybox", "sh", "-c",
@@ -107,11 +111,11 @@ class Console:
                 self.pid = None
                 return os.waitstatus_to_exitcode(status)
             time.sleep(0.02)
-        raise AssertionError("wizard did not exit")
+        raise AssertionError(f"wizard did not exit: {self.output!r}")
 
     def close(self):
         if self.pid:
-            os.kill(self.pid, signal.SIGKILL)
+            os.killpg(self.pid, signal.SIGKILL)
             os.waitpid(self.pid, 0)
         os.close(self.fd)
 
