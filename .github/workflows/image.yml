@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: image-${{ github.ref }}
   cancel-in-progress: false
@@ -70,7 +74,9 @@ jobs:
         if: runner.environment == 'github-hosted'
         run: |
           # Only the disposable GitHub VM is cleaned, never a self-hosted machine.
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache /usr/lib/jvm /usr/share/swift \
+            /usr/local/share/boost /usr/local/share/powershell /opt/az /opt/google
       - name: Check build resources
         run: |
           command -v docker
@@ -91,7 +97,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          python3 scripts/package-release.py --build-dir "$BEITLAB_WORK_DIR/releases/$VERSION" --asset-dir "$BEITLAB_WORK_DIR/assets"
+          /usr/bin/python3 scripts/package-release.py --build-dir "$BEITLAB_WORK_DIR/releases/$VERSION" --asset-dir "$BEITLAB_WORK_DIR/assets"
           (cd "$BEITLAB_WORK_DIR/assets" && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
