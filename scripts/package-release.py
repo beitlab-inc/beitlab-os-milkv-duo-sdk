@@ -47,11 +47,13 @@ def package(source, destination, version):
         with zipfile.ZipFile(tools, "x", compression=zipfile.ZIP_DEFLATED) as archive:
             for path in sorted((REPO / "scripts").glob("*.py")):
                 if path.name.startswith(("beitlab-imager", "imager_", "configure-")):
-                    archive.write(path, path.name)
+                    archive.write(path, "scripts/" + path.name)
             for name in ("FLASH.md", "SECURITY.md", "LICENSING.md"):
                 archive.write(REPO / "docs" / name, "docs/" + name)
             archive.write(REPO / "imager.json", "imager.json")
+            archive.write(REPO / "VERSION", "VERSION")
             archive.write(REPO / "THIRD_PARTY_NOTICES", "THIRD_PARTY_NOTICES")
+            archive.writestr("START-HERE.txt", "Run python3 scripts/beitlab-imager.py --image /path/to/image.img.xz\nInstall Python 3.10+, mtools and OpenSSL. See docs/FLASH.md.\n")
         notices = destination / f"beitlab-upstream-notices-{version}.zip"
         with zipfile.ZipFile(notices, "x", compression=zipfile.ZIP_DEFLATED) as archive:
             root = REPO / "image/overlay/usr/share/licenses/beitlab"

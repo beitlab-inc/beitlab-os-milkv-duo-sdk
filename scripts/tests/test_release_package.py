@@ -4,6 +4,7 @@ import importlib.util
 import lzma
 from pathlib import Path
 import tempfile
+import shutil
 import unittest
 import zipfile
 
@@ -42,8 +43,20 @@ class PackageTest(unittest.TestCase):
         self.assertEqual(set(manifest), {p.name for p in self.destination.iterdir()} - {"SHA256SUMS"})
         with zipfile.ZipFile(self.destination / "beitlab-imager-tools-1.2.3.zip") as archive:
             self.assertIsNone(archive.testzip())
-            for name in ("beitlab-imager.py", "configure-wifi.py", "configure-image.py", "imager_sources.py", "imager_drives.py", "imager.json"):
-                self.assertIn(name, archive.namelist())
+            for name in ("beitlab-imager.py", "configure-wifi.py", "configure-image.py", "imager_sources.py", "imager_drives.py"):
+                self.assertIn("scripts/" + name, archive.namelist())
+            self.assertIn("imager.json", archive.namelist())
+
+    @unittest.skipUnless(all(shutil.which(name) for name in ('mcopy', 'mdir', 'mmd', 'mkfs.vfat')), 'needs FAT tools')
+    def test_extracted_bundle_prepares_a_real_image(self):
+        from test_imager import RealFATWizardTest
+        RELEASE.package(self.source, self.destination, "1.2.3")
+        extracted = self.root / "extracted"
+        with zipfile.ZipFile(self.destination / "beitlab-imager-tools-1.2.3.zip") as archive:
+            archive.extractall(extracted)
+        wizard = RealFATWizardTest('test_cli_prepares_image_over_a_real_terminal_without_touching_disks')
+        wizard.script_directory = extracted / 'scripts'
+        wizard.test_cli_prepares_image_over_a_real_terminal_without_touching_disks()
 
     def test_reject_corrupt_build_and_existing_destination(self):
         self.agent.write_bytes(b"corrupt")

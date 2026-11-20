@@ -367,7 +367,8 @@ class RealFATWizardTest(unittest.TestCase):
             destination = root / 'personal.img'
             pid, fd = pty.fork()
             if pid == 0:
-                os.execv(sys.executable, [sys.executable, str(SCRIPTS/'beitlab-imager.py'), '--image', str(image),
+                script_directory = getattr(self, 'script_directory', SCRIPTS)
+                os.execv(sys.executable, [sys.executable, str(script_directory/'beitlab-imager.py'), '--image', str(image),
                     '--sha256', digest, '--prepare-only', '--output', str(destination), '--no-color'])
             transcript = b''
             remaining = b''

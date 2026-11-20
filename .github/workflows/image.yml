@@ -30,6 +30,10 @@ jobs:
         run: |
           for script in scripts/*.sh firmware/starter/build.sh; do bash -n "$script"; done
           python3 -m unittest discover -s scripts/tests -v
+      - name: Test agent ELF validation and hashing without SDK
+        run: |
+          make -C agent B="$RUNNER_TEMP/agent-tests" "$RUNNER_TEMP/agent-tests/test_unit"
+          "$RUNNER_TEMP/agent-tests/test_unit"
 
   image:
     needs: tests
