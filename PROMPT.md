@@ -466,6 +466,18 @@ Do not ship a default pad.
 Each example README is ten lines: what it does, the upload command, what
 the user should see.
 
+### Carrier IMU diagnostic
+
+Provide `examples/platformio/robotics_imu` for carrier revision 0.11's
+BMI323 at I²C4 address 0x68 on B1/B2. Poll using I²C only, with no IMU
+interrupt GPIO, PWM, SPI, LED or motor control. Print acceleration, gyro
+and temperature through the existing serial/dump-ring runtime. Add an
+explicit diagnostic profile granting only that device while retaining
+carrier and Linux reservations. Check policy before any register access,
+isolate the SDK's duplicate boot I²C route as inputs, and bound all
+transactions and cleanup. Build independently of both sibling trees and
+document hardware tests as pending until real readings are captured.
+
 ## Flash document
 
 `docs/FLASH.md` is the only page a new user needs. It contains:

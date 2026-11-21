@@ -14,9 +14,12 @@ const char *pg_profile_name(void);
  * pin if non-NULL. Unknown pins/functions are denied. */
 const char *pg_profile_gpio_output(const char *pad, struct pg_pin_id *pin);
 
-/* Future peripheral drivers must check this before touching registers/muxes.
- * This version has no application peripheral grants: every resource is denied,
- * with a specific explanation for reserved controllers. NULL would mean allowed. */
+/* Check before touching controller registers/muxes. NULL means available;
+ * I2C drivers must also check the individual address below. */
 const char *pg_profile_resource(const char *name);
+
+/* Seven-bit I2C address authorization. NULL means allowed. No hardware access.
+ * A device grant never grants general GPIO output on the bus/route pads. */
+const char *pg_profile_i2c_address(unsigned bus, unsigned address);
 
 #endif

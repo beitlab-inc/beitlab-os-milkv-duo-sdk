@@ -24,6 +24,7 @@ selects the permissions for the attached hardware.
 | --- | --- | --- |
 | `duos_bare` | A18, A19, A20, A28, A29 | Linux console, storage, networking and USB; every output not explicitly verified |
 | `beitlab_robotics_rev011` | A29 (onboard blue LED) | All 24 pads in carrier map revision 0.11; SPI3, I2C4 and PWM controllers 0–2; Linux resources |
+| `beitlab_robotics_rev011_imu` | A29 (unused by IMU example) | Carrier reservations retained; only BMI323 at I2C4 address 0x68 granted through the checked driver |
 
 | Example folder | Explicit `custom_profile` | Purpose |
 | --- | --- | --- |
@@ -34,6 +35,7 @@ selects the permissions for the attached hardware.
 | `beitlabduino_blink` | `duos_bare` | LED blink with setup()/loop() |
 | `beitlabduino_mailbox` | `duos_bare` | LED control through mailbox commands |
 | [`robotics_board`](../examples/platformio/robotics_board/README.md) | `beitlab_robotics_rev011` | Inspect carrier reservations and blink the onboard LED |
+| [`robotics_imu`](../examples/platformio/robotics_imu/README.md) | `beitlab_robotics_rev011_imu` | Poll the carrier BMI323 using I²C only and print readings |
 
 The nested `blink/heartbeat` copy also explicitly selects `duos_bare`.
 Open `examples/platformio/robotics_board` for the carrier example. It
@@ -95,8 +97,11 @@ until enabled in `pin.h`, and any enabled pin must pass the selected profile.
 
 `pg_profile_gpio_output()` inspects permissions without touching hardware.
 `pg_profile_resource()` explains peripheral reservations. There are currently
-no application peripheral grants or PWM/SPI/I2C APIs; future drivers must
-check the profile before changing controllers or pinmux.
+no general PWM/SPI APIs. The IMU example has a local checked I²C4 driver
+and an explicit grant for address 0x68. Drivers must check both
+`pg_profile_resource()` and `pg_profile_i2c_address()` before controller
+or pinmux access. Device grants never permit GPIO output on B1/B2.
+See [IMU.md](IMU.md) for boot-route isolation and diagnostic limits.
 
 ## Maintain the profiles
 
@@ -112,6 +117,12 @@ schematic/pinout, SDK mux and Linux ownership evidence in the manifest's
 `sources` before adding a grant. A child profile cannot release a Linux
 pin. Unknown pins and resources are denied. Manifests contain pad identities,
 not guessed register addresses; the driver uses the pinned SDK GPIO bases.
+
+`i2c_devices` lists explicitly granted seven-bit addresses, for example
+`{"i2c4": [104]}` for the BMI323 diagnostic. Only the carrier's verified
+I²C4 route is supported; B1/B2 and the B20/B21 boot-route isolation pads
+must retain carrier reservations. Invalid, duplicate and reserved I²C
+addresses are rejected. The normal carrier profile has no device grant.
 
 The builder generates the selected policy in its object directory and links
 it into the ELF. It prints the profile name during a build; programs can

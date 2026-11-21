@@ -10,6 +10,9 @@ struct profile_pin {
 struct profile_resource {
 	const char *name, *reason;
 };
+struct profile_i2c_device {
+	unsigned bus, address;
+};
 #include "pg_profile_generated.h"
 
 const char *pg_profile_name(void)
@@ -55,8 +58,25 @@ const char *pg_profile_resource(const char *name)
 
 	if (!name)
 		return "invalid resource";
+	if (!strcmp(name, "i2c4"))
+		for (i = 0; profile_i2c_devices[i].bus != 255; i++)
+			if (profile_i2c_devices[i].bus == 4)
+				return NULL;
 	for (i = 0; profile_resources[i].name; i++)
 		if (!strcmp(profile_resources[i].name, name))
 			return profile_resources[i].reason;
 	return "peripheral access not verified/allowed by this profile";
+}
+
+const char *pg_profile_i2c_address(unsigned bus, unsigned address)
+{
+	unsigned i;
+
+	if (address < 0x08 || address > 0x77)
+		return "invalid or reserved seven-bit I2C address";
+	for (i = 0; profile_i2c_devices[i].bus != 255; i++)
+		if (profile_i2c_devices[i].bus == bus &&
+		    profile_i2c_devices[i].address == address)
+			return NULL;
+	return "I2C device not allowed by this profile";
 }

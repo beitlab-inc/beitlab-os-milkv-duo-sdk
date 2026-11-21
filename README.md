@@ -14,6 +14,7 @@ The robot control core lives in [Balanced_robot](../Balanced_robot/README.md). T
 - [docs/FLASH.md](docs/FLASH.md) takes you from a blank card to the `hello` banner.
 - [docs/sdk-notes.md](docs/sdk-notes.md) records what the pinned SDK contains, the decisions taken, and the acceptance-test results.
 - [docs/PROFILES.md](docs/PROFILES.md) selects bare-Duo or robotics-carrier pin permissions in PlatformIO.
+- [docs/IMU.md](docs/IMU.md) runs the carrier BMI323 example over I²C and prints acceleration, angular rate and temperature to J22 or the SSH monitor.
 - [docs/CI.md](docs/CI.md) describes external build paths and GitHub Actions release assets.
 - [PROMPT.md](PROMPT.md) is the implementation contract.
 - [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) credits the upstream projects; [docs/LICENSING.md](docs/LICENSING.md) records the license review and remaining redistribution requirements.
@@ -44,7 +45,7 @@ firmware/runtime/      C906 runtime: mailbox, log, main_cvirtos()
 firmware/starter/      starter program baked into the image
 firmware/rtosbuild.py  builds any playground ELF with the SDK's own flags
 profiles/              hardware pin permissions; selected by custom_profile in platformio.ini
-examples/platformio/   bare-Duo examples, robotics_board, common/ (upload, monitor, platform)
+examples/platformio/   bare-Duo examples, robotics_board, robotics_imu, common/ (upload, monitor, platform)
 scripts/               configure-image.py, configure-wifi.py, fetch-freertos.sh, build-rtos-libs.sh, build-image.sh,
                        check-dtb.py, flash.sh,
                        acceptance.py (tests 1-7 over SSH, PC side)

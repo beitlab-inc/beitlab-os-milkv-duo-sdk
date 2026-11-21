@@ -29,6 +29,14 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(carrier["pins"]["A29"]["owner"], "application")
         self.assertEqual(carrier["pins"]["A16"]["owner"], "linux")
 
+    def test_imu_profile_only_grants_its_i2c_address(self):
+        carrier = profiles.load_profile()
+        diagnostic = profiles.load_profile("beitlab_robotics_rev011_imu")
+        self.assertEqual(carrier['i2c_devices'], {})
+        self.assertEqual(diagnostic['i2c_devices'], {'i2c4': [0x68]})
+        self.assertEqual(diagnostic['pins'], carrier['pins'])
+        self.assertEqual(diagnostic['reserved_resources'], carrier['reserved_resources'])
+
     def test_invalid_manifest_and_linux_override_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -41,6 +49,14 @@ class ManifestTest(unittest.TestCase):
                 {"pins": {"A16": {"owner": "robot", "purpose": "test"}}},
                 {"pins": {"A1": {"owner": "application", "purpose": "test"}}},
                 {"extends": "test"},
+                {"i2c_devices": {"i2c4": [0x68]}},  # bare board lacks carrier route evidence
+                {"extends": "beitlab_robotics_rev011", "i2c_devices": {"i2c0": [0x68]}},
+                {"extends": "beitlab_robotics_rev011", "i2c_devices": {"i2c4": [0]}},
+                {"extends": "beitlab_robotics_rev011", "i2c_devices": {"i2c4": [128]}},
+                {"extends": "beitlab_robotics_rev011", "i2c_devices": {"i2c4": [True]}},
+                {"extends": "beitlab_robotics_rev011", "i2c_devices": {"i2c4": [104, 104]}},
+                {"extends": "beitlab_robotics_rev011", "i2c_devices": {"i2c4": []}},
+                {"extends": "beitlab_robotics_rev011", "i2c_devices": []},
             ]
             for variant in variants:
                 with self.subTest(variant=variant), self.assertRaises(profiles.ProfileError):

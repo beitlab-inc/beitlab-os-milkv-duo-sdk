@@ -1,0 +1,12 @@
+{
+  "id": "beitlab_robotics_rev011_imu",
+  "extends": "beitlab_robotics_rev011",
+  "description": "Carrier revision 0.11 BMI323 polling diagnostic; only I2C4 address 0x68",
+  "sources": [
+    "../Balanced_robot/include/balance/board_carrier.h: BMI323 0x68, B1/B2, no IMU_INT1 use",
+    "../Robotics_board/hardware/BRINGUP.md: BMI323 I2C framing and configuration",
+    "sdk.lock: freertos/cvitek/hal/cv181x/config/cv181x_pinlist_swconfig.h: ADC3/ADC2 IIC4 function 2",
+    "sdk.lock: board u-boot/cvi_board_init.c: VIVO_D1/VIVO_D0 boot IIC4 route must become GPIO inputs before using ADC3/ADC2"
+  ],
+  "i2c_devices": {"i2c4": [104]}
+}

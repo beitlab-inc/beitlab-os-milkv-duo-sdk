@@ -233,7 +233,12 @@ class Config:
             d = os.path.dirname(h)
             if d not in dirs:
                 dirs.append(d)
-        return [os.path.join(REPO, "firmware", "include")] + dirs
+        # The pinned SDK does not install the DesignWare I2C headers with
+        # its default CVIRTOS stages. Read them from the sparse source tree;
+        # the polling example does not link the vendor IRQ-based I2C driver.
+        return [os.path.join(REPO, "firmware", "include")] + dirs + [
+            os.path.join(self.top, "hal", "cv181x", "i2c", "include"),
+            os.path.join(self.top, "driver", "i2c", "include")]
 
     def runtime_sources(self):
         # Same glob as task/main/CMakeLists.txt: file(GLOB _SOURCES "src/*.c" "*.S").

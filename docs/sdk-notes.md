@@ -1115,3 +1115,67 @@ repositories to exercise fresh clones already at the pinned HEAD,
 interrupted clones without an index, repeated setup, sparse tree
 selection, and preservation of local cache files. SDK and compiler files
 remain outside the source checkout.
+
+### Carrier BMI323 I²C-only diagnostic, 2026-11-21
+
+`examples/platformio/robotics_imu` is an independent C906 diagnostic for
+carrier revision 0.11. It does not import or build robot/carrier sources.
+The wiring evidence is `BAL_I2C_BMI323_ADDR = 0x68`, B1/SCL on J4-50,
+B2/SDA on J4-48, and the PCA9306 translator in the carrier's
+`hardware/BRINGUP.md` and `board_carrier.h`. The sensor protocol was
+checked against [Bosch BST-BMI323-DS000-13](https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmi323-ds000.pdf),
+sections 4, 6 and 7: chip ID 0x43, two dummy read bytes, little-endian
+words, soft reset 0xDEAF, polling STATUS and configuration readback.
+The sensor uses 100 Hz, ±4 g/±2000 °/s; the task prints the latest sample
+at about 10 Hz through `pg_print` (J22 UART0 plus the vendor dump ring).
+Only the formatter's supported `%d`/`%x`/`%s` conversions are used.
+
+SDK evidence at `sdk.lock`:
+
+- `freertos/cvitek/hal/cv181x/config/top_reg.h`: I2C4 base 0x04040000.
+- `hal/cv181x/i2c/include/hal_dw_i2c.h`: DesignWare register layout,
+  status/command bits and IC_CLK=100 MHz timing convention.
+- `hal/cv181x/config/cv181x_pinlist_swconfig.h`: ADC3/B1 and ADC2/B2
+  select IIC4_SCL/SDA with function 2.
+- The board's `u-boot/cvi_board_init.c` selects IIC4 on VIVO_D1/B20 and
+  VIVO_D0/B21, function 7. Those carrier motor-PWM/encoder-CS pads must
+  not also emit I²C traffic. With I2C4 disabled, the example clears only
+  the corresponding GPIOB direction bits and changes those old I²C mux
+  selections to GPIO inputs; other functions and GPIO data are preserved.
+- `linux_5.10/drivers/i2c/busses/i2c-designware-core.h` gives the
+  component register/value 0xfc/0x44570140; `i2c-designware-master.c`
+  uses DATA_CMD bit 10 for RESTART and bit 9 for STOP. ENABLE ABORT bit 1
+  is also documented in [the upstream DesignWare definitions](https://code.googlesource.com/linux/torvalds/linux/+/2656821f1f202d58224551b71eff41aafd1edf8b/drivers/i2c/busses/i2c-designware-core.h).
+
+The pinned vendor HAL sends STOP on each read byte, contains an unbounded
+write-FIFO loop, and registers IC3_INTR regardless of the chosen bus.
+This example instead has a small polling driver using SDK definitions,
+one final STOP and bounded waits/abort cleanup. It changes no system clock
+or reset registers and does not register IRQs. The builder exposes the
+SDK's I²C source headers because the default CVIRTOS library stages do not
+install them. The vendor I²C driver itself is not linked by this example.
+
+`beitlab_robotics_rev011_imu` explicitly grants I2C4 address 0x68 only.
+Normal carrier and bare profiles still deny all I²C devices; the
+diagnostic retains their Linux and robot GPIO reservations. Controller
+and device policy checks run before any MMIO. The example does not use
+IMU_INT1/A20, GPIO outputs, PWM, SPI, other I²C targets or the LED.
+
+Command: `PLATFORMIO_BUILD_DIR=<external-build>
+PYTHONDONTWRITEBYTECODE=1 pio run -d examples/platformio/robotics_imu`.
+Result: `firmware.elf ok (307216 bytes)`, including remoteproc ABI checks.
+Existing `blink` and `robotics_board` also cross-built successfully.
+
+All 93 source tests passed. New C host tests run under address/undefined
+behavior sanitizers and emulate sensor registers and MMIO. Coverage:
+dummy-byte removal, endian/signed conversion, scale limits, configuration
+readback, wrong-ID refusal before writes, stale/reset/invalid data,
+policy refusal without MMIO, preserved GPIO data and unrelated bits,
+boot-route isolation, allowed target only, repeated START/final STOP,
+NACK recovery and bounded timeouts. Test definitions are small host
+shims, not a vendored SDK.
+
+The user reports an SSH connection to the board; this new firmware was
+not uploaded automatically and no real IMU values were captured. Sensor
+association, physical serial output and bus timing/rise times remain
+pending. [IMU.md](IMU.md) contains the upload, serial and E-stop steps.

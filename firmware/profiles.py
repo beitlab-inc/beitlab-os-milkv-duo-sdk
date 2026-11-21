@@ -43,7 +43,7 @@ def load_profile(name=DEFAULT_PROFILE, directory=PROFILE_DIR, _parents=()):
             not isinstance(s, str) or not s for s in sources):
         raise ProfileError("profile needs source references: %s" % name)
     parent = load_profile(data["extends"], directory, _parents + (name,)) \
-        if "extends" in data else {"pins": {}, "reserved_resources": {}, "sources": []}
+        if "extends" in data else {"pins": {}, "reserved_resources": {}, "sources": [], "i2c_devices": {}}
     pins = dict(parent["pins"])
     entries = data.get("pins", {})
     if not isinstance(entries, dict):
@@ -72,9 +72,23 @@ def load_profile(name=DEFAULT_PROFILE, directory=PROFILE_DIR, _parents=()):
             for k, v in resources.items()):
         raise ProfileError("invalid reserved_resources: %s" % name)
     reserved.update(resources)
+    i2c = dict(parent["i2c_devices"])
+    devices = data.get("i2c_devices", {})
+    if not isinstance(devices, dict):
+        raise ProfileError("i2c_devices must be an object: %s" % name)
+    i2c.update(devices)
+    for bus, addresses in i2c.items():
+        # Only this carrier route has SDK mux and electrical evidence so far.
+        if bus != "i2c4" or not isinstance(addresses, list) or not addresses or any(
+                type(address) is not int or not 0x08 <= address <= 0x77 for address in addresses):
+            raise ProfileError("invalid or unverified I2C grant: %s" % bus)
+        if len(set(addresses)) != len(addresses):
+            raise ProfileError("duplicate I2C address: %s" % bus)
+        if any(pins.get(pad, {}).get("owner") != "robot" for pad in ("B1", "B2", "B20", "B21")):
+            raise ProfileError("I2C4 grant requires the carrier's reserved B1/B2 route and B20/B21 boot-route isolation")
     return {"id": name, "description": data["description"],
             "sources": parent["sources"] + sources,
-            "pins": pins, "reserved_resources": reserved}
+            "pins": pins, "reserved_resources": reserved, "i2c_devices": i2c}
 
 
 def generate_header(profile, destination):
@@ -93,7 +107,12 @@ def generate_header(profile, destination):
               "static const struct profile_resource profile_resources[] = {"]
     for resource, reason in sorted(profile["reserved_resources"].items()):
         lines.append("    {%s, %s}," % (quote(resource), quote(reason)))
-    lines += ["    {0, 0}", "};", ""]
+    lines += ["    {0, 0}", "};",
+              "static const struct profile_i2c_device profile_i2c_devices[] = {"]
+    for bus, addresses in sorted(profile["i2c_devices"].items()):
+        for address in sorted(addresses):
+            lines.append("    {%d, %d}," % (int(bus[3:]), address))
+    lines += ["    {255, 0}", "};", ""]
     Path(destination).write_text("\n".join(lines))
 
 

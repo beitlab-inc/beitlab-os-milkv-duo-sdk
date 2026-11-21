@@ -1,0 +1,98 @@
+# Carrier IMU over I²C
+
+[`robotics_imu`](../examples/platformio/robotics_imu) reads the onboard
+**BMI323** on the Beitlab carrier revision 0.11 using the C906 and OS 0.4.0.
+No Linux image rebuild is needed. I²C4 belongs to the C906; do not enable
+a competing Linux driver for that controller.
+
+| Connection | Carrier wiring |
+| --- | --- |
+| SCL | B1, Duo S J4 pin 50 |
+| SDA | B2, Duo S J4 pin 48 |
+| Logic | 1.8 V at J4, translated to the onboard 3.3 V bus by PCA9306 |
+| Sensor | U10 BMI323, seven-bit address `0x68`, chip ID `0x43` |
+| Interrupt | Not used; no setup on A20/INT1 |
+
+No external IMU jumpers are needed. Older carriers with BMI160 are
+unsupported: a wrong chip ID is rejected before writing sensor settings.
+Address `0x69` is not probed; the carrier straps select `0x68`.
+
+## Upload and see readings
+
+Keep the E-stop open and drives disabled. Upload replaces any robot
+firmware on the C906. The example does not initialize PWM, SPI, motor
+enables, servos or LED, but cannot guarantee output hardware left by
+previous firmware. Follow [carrier power/lock instructions](FLASH.md#7-on-the-carrier-lock-before-the-robot-can-move).
+
+On the Linux x86_64 PC (or WSL2), from the repository:
+
+```sh
+git pull --ff-only
+scripts/fetch-freertos.sh            # once, if not already completed
+export PIO_DUO_HOST=beitlab-milkv-duo.local  # your working SSH host/IP
+export PIO_DUO_USER=beitlab
+cd examples/platformio/robotics_imu
+pio run -t upload
+pio run -t rtmonitor
+```
+
+If locked, follow the E-stop instructions before running
+`sudo -n /usr/libexec/playground/rtos-control unlock` in the board's SSH
+session. Keep the E-stop open throughout this test.
+
+Expect a `BMI323 ready` banner and lines shaped like this **illustrative
+output**, not a captured hardware measurement:
+
+```text
+RTD: imu a_mg=12,-8,998 g_mdps=122,-61,0 temp_mC=24500
+```
+
+Groups contain sensor X/Y/Z. `a_mg` uses 1000 units per g; `g_mdps` uses
+1000 units per degree/second; `temp_mC` uses 1000 units per °C. Stationary
+readings should show roughly one g on the upward axis and near-zero gyro.
+No robot-axis rotation, calibration or fusion is applied. The sensor runs
+at 100 Hz, ±4 g and ±2000 °/s; the latest sample is printed about every
+100 ms. Invalid/unavailable data produces no fabricated zero samples.
+
+For **physical serial**, use a **3.3 V USB–TTL adapter on J22, 115200 8N1**:
+adapter RX to board TX, with common ground. Do not connect adapter power
+to the carrier. Readings have `RT:` prefixes and share the Linux console.
+UART0 and login remain intact. The SSH monitor uses the C906 dump ring
+and requires no adapter. Ctrl-C leaves acquisition running.
+
+## Ownership and failure handling
+
+The dedicated profile inherits carrier reservations and grants only I²C4
+address `0x68`. B1/B2 remain unavailable as GPIO outputs. The bare-Duo
+and normal carrier profiles gain no I²C permission. There are no accesses
+to the ADC, PCA9685, display or All Call addresses. Controller and address
+policy are checked before any register or pinmux access.
+
+Stock U-Boot also routes I²C4 to VIVO_D1/B20 and VIVO_D0/B21, used for
+motor PWM/encoder CS. With I²C disabled, the example makes those old I²C
+routes **GPIO inputs**, then selects ADC3/B1 and ADC2/B2. It changes only
+existing I²C selections, preserving other functions, and never drives
+those GPIO outputs or rewrites GPIO data. This prevents I²C traffic being
+mirrored onto the old boot routes.
+
+The driver uses pinned SDK DesignWare definitions and its 100 MHz timing
+convention, with conservative approximately 100 kHz bus timing. No system
+clock/reset or IRQ setup is changed. Transfers use repeated START and one
+final STOP, strip two dummy bytes and decode little-endian words. Polls
+and abort/disable cleanup are bounded; retries include delays. No GPIO
+bus recovery is attempted. Chip identification precedes soft reset, which
+leaves sensor interrupt outputs off; configuration is read back.
+
+Initialization errors retry once per second. `chip` is the observed chip
+ID, `err` the sensor error register, and `abort` the DesignWare abort
+source. Abort bit 0 means the address was not acknowledged. Check carrier
+power, U10 population/strap, translator levels and B1/B2 routing. A
+controller probe error can indicate a different OS/clock setup.
+
+Cross-builds and ELF checks pass. Host tests cover decoding, scaling,
+wrong devices, faults, policy refusal with no register accesses, route
+isolation, NACKs and timeouts. Physical carrier readings and bus timing
+measurements remain pending. See [sdk-notes.md](sdk-notes.md).
+
+Sources: [Bosch BMI323 datasheet, BST-BMI323-DS000-13](https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmi323-ds000.pdf),
+[Milk-V Duo S pinout](https://milkv.io/docs/duo/getting-started/duos#header-j4).
