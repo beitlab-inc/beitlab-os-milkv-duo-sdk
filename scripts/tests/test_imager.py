@@ -245,6 +245,74 @@ class SourceTest(unittest.TestCase):
              self.assertRaisesRegex(ValueError, 'no entry'):
             sources.github_image('owner/repo', 'latest', Path('/not/created'), lambda *args: None)
 
+    def test_authenticated_download_verifies_manifest_and_reuses_cache(self):
+        payload = b'authenticated image fixture'
+        digest = hashlib.sha256(payload).hexdigest()
+        name = 'beitlab-robotics-milkv-duo-os-0.4.0-duos-arm64-sd.img.xz'
+        prefix = 'https://api.github.com/repos/owner/repo/releases/assets/'
+        release = {'isDraft': True, 'assets': [
+            {'name': name, 'apiUrl': prefix + '1', 'size': len(payload)},
+            {'name': 'SHA256SUMS', 'apiUrl': prefix + '2', 'size': 200}]}
+        calls = []
+
+        def gh(argv, **kwargs):
+            calls.append(argv)
+            if argv[1:3] == ['release', 'view']:
+                self.assertEqual(argv[-2:], ['--', 'v0.4.0'])
+                output = json.dumps(release).encode()
+            else:
+                self.assertEqual(argv[1], 'api')
+                self.assertIn('Accept: application/octet-stream', argv)
+                self.assertEqual(kwargs['env']['GH_HOST'], 'github.com')
+                output = (digest + '  ' + name + '\n').encode() if argv[2].endswith('/2') else payload
+            kwargs['stdout'].write(output)
+            return subprocess.CompletedProcess(argv, 0)
+
+        with tempfile.TemporaryDirectory() as temporary, patch.object(sources.shutil, 'which', return_value='/usr/bin/gh'), \
+             patch.object(sources.subprocess, 'run', side_effect=gh), patch.object(sources, 'https_open') as anonymous:
+            folder = Path(temporary)
+            result, actual = sources.github_image('owner/repo', 'v0.4.0', folder, lambda *args: None, authenticated=True)
+            self.assertEqual(actual, digest)
+            self.assertEqual(result.read_bytes(), payload)
+            sources.github_image('owner/repo', 'v0.4.0', folder, lambda *args: None, authenticated=True)
+            self.assertEqual(sum(call[1] == 'api' and call[2].endswith('/1') for call in calls), 1)
+            anonymous.assert_not_called()
+            result.unlink()
+            payload = b'corrupt response'
+            with self.assertRaisesRegex(ValueError, 'checksum'):
+                sources.github_image('owner/repo', 'v0.4.0', folder, lambda *args: None, authenticated=True)
+            self.assertEqual(list(folder.iterdir()), [])
+
+    def test_authenticated_download_rejects_external_asset_and_oversize(self):
+        for url in ('https://example.com/asset', 'https://api.github.com/repos/other/repo/releases/assets/1',
+                    'https://api.github.com/repos/owner/repo/releases/assets/1?redirect=x'):
+            with self.subTest(url=url), self.assertRaisesRegex(ValueError, 'outside'):
+                sources.authenticated_asset('owner/repo', {'url': url}, 100)
+        with self.assertRaisesRegex(ValueError, 'size limit'):
+            sources.authenticated_asset('owner/repo', {
+                'url': 'https://api.github.com/repos/owner/repo/releases/assets/1', 'size': 101}, 100)
+
+    def test_authenticated_download_missing_login_and_metadata_limit(self):
+        with patch.object(sources.shutil, 'which', return_value=None), self.assertRaisesRegex(ValueError, 'Install'):
+            sources.authenticated_release('owner/repo', 'v0.4.0')
+        with patch.object(sources.shutil, 'which', return_value='/usr/bin/gh'), \
+             patch.object(sources.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1)), \
+             self.assertRaisesRegex(ValueError, 'gh auth login'):
+            sources.authenticated_release('owner/repo', 'v0.4.0')
+
+        def oversized(argv, **kwargs):
+            kwargs['stdout'].write(b'x' * (1024 * 1024 + 1))
+            return subprocess.CompletedProcess(argv, 0)
+
+        with patch.object(sources.shutil, 'which', return_value='/usr/bin/gh'), \
+             patch.object(sources.subprocess, 'run', side_effect=oversized), self.assertRaisesRegex(ValueError, 'size limit'):
+            sources.authenticated_release('owner/repo', 'latest')
+
+    def test_private_release_error_explains_authenticated_option(self):
+        error = sources.urllib.error.HTTPError('https://api.github.com/test', 404, 'Not Found', {}, None)
+        with patch.object(sources, 'read_metadata', side_effect=error), self.assertRaisesRegex(ValueError, '--github-auth'):
+            sources.github_image('owner/repo', 'v0.4.0', Path('/not/created'), lambda *args: None)
+
     def test_http_and_downgrade_are_refused(self):
         with self.assertRaises(ValueError):
             sources.https_open('http://example.com/file.img')

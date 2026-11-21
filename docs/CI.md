@@ -80,12 +80,16 @@ Run the workflow from Actions → **Build OS image** → **Run workflow**, or:
 gh workflow run image.yml --repo beitlab-inc/beitlab-os-milkv-duo-sdk
 ```
 
-The configured repository is currently private. Download its assets while
-authenticated in a browser or with `gh release download v<VERSION> --repo
-beitlab-inc/beitlab-os-milkv-duo-sdk`. Then give the downloaded file to
-`scripts/beitlab-imager.py --image /path/to/image.img.xz`. The imager's
-unauthenticated GitHub downloader supports public published releases;
-it does not expose tokens to third-party asset hosts.
+The configured repository is currently private. With the latest repository
+scripts, sign in using `gh auth login --hostname github.com`, then run
+`python3 scripts/beitlab-imager.py --github-auth --release v0.4.0
+--prepare-only --output /path/to/my-duo.img`. The wizard downloads and
+verifies the asset, then prompts for Wi-Fi and account settings. Drafts
+need an explicit tag; `latest` selects published releases. See [FLASH.md](FLASH.md)
+for setup and the alternative using a locally downloaded image. The original
+v0.4.0 tools ZIP predates authenticated downloading; use the latest repository
+scripts for `--github-auth`. Anonymous downloads continue to support public
+releases, and credentials remain inside GitHub CLI's transport.
 
 ## Verified build
 

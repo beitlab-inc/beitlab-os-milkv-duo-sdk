@@ -1044,3 +1044,32 @@ regular-user login and the hardware acceptance sequence above remain
 pending because no Duo S is connected. Selected notices are attached;
 the source-delivery and vendor-firmware permission questions in
 [LICENSING.md](LICENSING.md) remain open before publication.
+
+### Authenticated GitHub imager downloads, 2026-11-21
+
+The current source scripts support `--github-auth` through GitHub CLI's
+existing login. Explicit tags can select private draft releases. The
+default `latest` still selects a published release. The original v0.4.0
+tools ZIP is unchanged and predates this option; use the latest repository
+scripts or the documented manual-download/local-image path with that ZIP.
+No Linux image rebuild was needed for this PC-side change.
+
+Command: `python3 scripts/beitlab-imager.py --github-auth --release v0.4.0
+--prepare-only --output <external-personal-image>` in an interactive
+terminal. Verified against the actual private draft: authenticated
+metadata and asset download succeeded, the compressed image matched its
+`SHA256SUMS` entry, and the wizard unpacked and personalized the CI image
+using fixture credentials. FAT readback matched the Wi-Fi PSK, hostname
+and public key. The regular user's SSH password login stayed disabled.
+The password never appeared in the terminal transcript, the personal
+image had mode 0600 with a valid checksum, and the partition table and
+non-boot partitions matched the original. No physical disk was written;
+the temporary personalized image was removed. The unmodified download
+cache is external to the repository.
+
+`PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s scripts/tests -v`:
+85 tests passed. New coverage checks authenticated manifest/download/cache
+handling, corrupt-download cleanup, cross-repository asset refusal,
+size limits, missing login/tool handling, and the private-release error
+message. Existing real-FAT/PTY personalization and extracted-bundle tests
+also passed. Hardware Wi-Fi association remains pending.

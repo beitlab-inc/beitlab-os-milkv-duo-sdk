@@ -144,7 +144,10 @@ def image_source(args, ui, temporary):
         repository = sources.resolve_repository(args.github_repo, ROOT)
         if repository:
             ui.say(f"Getting {repository} · {args.release} from GitHub Releases", "⬇️")
-            image, expected = sources.github_image(repository, args.release, args.cache_dir, ui.progress)
+            if args.github_auth:
+                ui.say("Using your GitHub CLI login for this download.")
+            image, expected = sources.github_image(repository, args.release, args.cache_dir, ui.progress,
+                                                   authenticated=args.github_auth)
         else:
             work = Path(os.environ.get("BEITLAB_WORK_DIR", str(Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "beitlab-duo-os")))
             local = sorted((work / "releases").glob("*/beitlab-robotics-milkv-duo-os-*-duos-arm64-sd.img*"),
@@ -331,7 +334,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", type=Path, help="local image; takes priority over GitHub")
     parser.add_argument("--sha256", help="local image checksum when no matching sidecar exists")
-    parser.add_argument("--github-repo", help="future public release repository: OWNER/REPO")
+    parser.add_argument("--github-repo", help="release repository: OWNER/REPO")
+    parser.add_argument("--github-auth", action="store_true", help="use your GitHub CLI login for private/draft release downloads")
     parser.add_argument("--release", default="latest", help="GitHub release tag (default: latest)")
     parser.add_argument("--cache-dir", type=Path, default=Path.home() / ".cache/beitlab-imager")
     parser.add_argument("--output", type=Path, help="keep a personal image instead of only a temporary copy")

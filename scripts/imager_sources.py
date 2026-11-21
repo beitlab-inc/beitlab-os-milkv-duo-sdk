@@ -1,4 +1,5 @@
-"""Local-image verification and future public GitHub release downloads."""
+"""Verified local images and public or authenticated GitHub downloads."""
+from contextlib import contextmanager
 import gzip
 import hashlib
 import json
@@ -11,6 +12,7 @@ import subprocess
 import tempfile
 import urllib.parse
 import urllib.request
+import urllib.error
 
 CHUNK = 4 * 1024 * 1024
 MAX_IMAGE = 16 * 1024**3
@@ -94,6 +96,51 @@ def read_metadata(url, limit=1024*1024):
     return data
 
 
+@contextmanager
+def github_cli_response(arguments, limit):
+    """Keep credentials in gh's transport, out of Python headers and argv."""
+    if not shutil.which("gh"):
+        raise ValueError("--github-auth needs GitHub CLI (gh). Install it and run: gh auth login --hostname github.com")
+    environment = dict(os.environ, GH_PROMPT_DISABLED="1", GH_HOST="github.com")
+    with tempfile.TemporaryFile() as response:
+        try:
+            result = subprocess.run(["gh", *arguments], stdin=subprocess.DEVNULL,
+                                    stdout=response, stderr=subprocess.DEVNULL,
+                                    env=environment, timeout=1800)
+        except subprocess.TimeoutExpired as error:
+            raise ValueError("GitHub download timed out; retry the command") from error
+        if result.returncode:
+            raise ValueError("GitHub CLI could not read the release or asset. Run gh auth login --hostname github.com and check repository access. For a draft, specify its tag with --release; latest selects published releases only.")
+        if response.tell() > limit:
+            raise ValueError("GitHub response exceeds the size limit")
+        response.seek(0)
+        yield response
+
+
+def authenticated_release(repository, tag):
+    arguments = ["release", "view", "--repo", "github.com/" + repository,
+                 "--json", "assets,isDraft,tagName"]
+    if tag != "latest":
+        # A positional tag beginning with '-' must never become a gh option.
+        arguments.extend(["--", tag])
+    with github_cli_response(arguments, 1024 * 1024) as response:
+        release = json.load(response)
+    return {"assets": [dict(asset, url=asset["apiUrl"])
+                       for asset in release.get("assets", [])]}
+
+
+def authenticated_asset(repository, asset, limit):
+    url = asset.get("url", "")
+    prefix = f"https://api.github.com/repos/{repository}/releases/assets/"
+    if not url.startswith(prefix) or not re.fullmatch(r"[0-9]+", url[len(prefix):]):
+        raise ValueError("refusing an authenticated asset URL outside this GitHub repository")
+    if int(asset.get("size") or 0) > limit:
+        raise ValueError("GitHub asset exceeds the size limit")
+    return github_cli_response(["api", url[len("https://api.github.com/"):],
+                                "--hostname", "github.com", "--header",
+                                "Accept: application/octet-stream"], limit)
+
+
 def release_asset(data):
     assets = [a for a in data.get("assets", []) if ASSET.fullmatch(a.get("name", "")) and a.get("state", "uploaded") == "uploaded"]
     if not assets:
@@ -101,9 +148,17 @@ def release_asset(data):
     return min(assets, key=lambda a: (0 if a["name"].endswith(".xz") else 1 if a["name"].endswith(".gz") else 2, a["name"]))
 
 
-def github_image(repository, tag, cache, progress):
+def github_image(repository, tag, cache, progress, authenticated=False):
     endpoint = "latest" if tag == "latest" else "tags/" + urllib.parse.quote(tag, safe="")
-    release = json.loads(read_metadata(f"https://api.github.com/repos/{repository}/releases/{endpoint}"))
+    if authenticated:
+        release = authenticated_release(repository, tag)
+    else:
+        try:
+            release = json.loads(read_metadata(f"https://api.github.com/repos/{repository}/releases/{endpoint}"))
+        except urllib.error.HTTPError as error:
+            if error.code in (401, 403, 404):
+                raise ValueError("GitHub release is unavailable without authentication. For a private repository or draft, use --github-auth and select its tag with --release after gh auth login --hostname github.com.") from error
+            raise
     asset = release_asset(release)
     value = asset.get("digest") or ""
     if value.startswith("sha256:"):
@@ -113,7 +168,12 @@ def github_image(repository, tag, cache, progress):
         sums = sums or next((a for a in release.get("assets", []) if a["name"] == "SHA256SUMS"), None)
         if sums is None:
             raise ValueError("release has no SHA256 digest or checksum asset for its image")
-        expected = checksum_entry(read_metadata(sums["browser_download_url"]).decode(), asset["name"])
+        if authenticated:
+            with authenticated_asset(repository, sums, 1024 * 1024) as response:
+                manifest = response.read().decode()
+        else:
+            manifest = read_metadata(sums["browser_download_url"]).decode()
+        expected = checksum_entry(manifest, asset["name"])
     cache.mkdir(parents=True, exist_ok=True)
     filename = cache / (expected + "-" + asset["name"])
     if filename.exists():
@@ -124,8 +184,10 @@ def github_image(repository, tag, cache, progress):
     with tempfile.NamedTemporaryFile(prefix=".download-", dir=cache, delete=False) as partial:
         temporary = Path(partial.name)
         try:
-            with https_open(asset["browser_download_url"]) as response:
-                declared = int(response.headers.get("Content-Length") or asset.get("size") or 0)
+            progress("Downloading", 0, int(asset.get("size") or 0))
+            stream = authenticated_asset(repository, asset, MAX_IMAGE) if authenticated else https_open(asset["browser_download_url"])
+            with stream as response:
+                declared = int(getattr(response, "headers", {}).get("Content-Length") or asset.get("size") or 0)
                 if declared > MAX_IMAGE:
                     raise ValueError("download is too large for this Duo S imager")
                 digest = hashlib.sha256()

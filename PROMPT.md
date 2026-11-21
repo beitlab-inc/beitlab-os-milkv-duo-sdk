@@ -212,6 +212,12 @@ writing, and verify the written image by reading it back. Keep discovery
 and preparation modes free of device writes. Document supported host OSes
 and distinguish automated tests from physical flashing tests.
 
+Also support the configured private repository's release assets with an
+explicit `--github-auth` option using GitHub CLI's existing login. Keep
+tokens out of command arguments and Python download headers. Require an
+explicit release tag for a draft; keep `latest` limited to published
+releases. Verify authenticated downloads before personalizing the image.
+
 If neither Ethernet nor Wi-Fi has a usable address after a short startup
 grace period, ask on J22 whether to configure Wi-Fi before the login prompt.
 An unattended boot must time out to the normal login. Accept an SSID and
