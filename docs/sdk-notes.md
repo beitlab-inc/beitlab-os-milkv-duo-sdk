@@ -1087,3 +1087,31 @@ paths using a mocked writer, preservation of the exact image bytes and
 checksum, rejection of corrupt images before drive selection, and invalid
 mode combinations. Existing drive protection, confirmation and read-back
 tests also passed. No physical card was written during these checks.
+
+### Sparse dependency checkout repair, 2026-11-21
+
+The first `pio run -t upload` for `blink` stopped before contacting the
+board: the external SDK cache lacked `toolchain-riscv64-elf.cmake`.
+Inspection found a sparse `clone --no-checkout` at the exact pinned commit
+with no Git index or working files. `fetch-freertos.sh` skipped checkout
+when HEAD already matched the pin, which can happen on a fresh clone and
+after interruption. The host-tools checkout had the same conditional.
+Both now always run a non-forced detached checkout to materialize the
+pinned files while preserving unrelated local cache files.
+
+`PYTHONDONTWRITEBYTECODE=1 scripts/fetch-freertos.sh` completed against the
+real pinned SDK and host-tools, fetching only the sparse dependency trees
+and installing the five FreeRTOS libraries in the external cache. The
+compiler reports `riscv64-unknown-elf-gcc (V2.0.3.0-xialf) 10.2.0`.
+
+`PLATFORMIO_BUILD_DIR=<external-build-directory>
+PYTHONDONTWRITEBYTECODE=1 pio run -d examples/platformio/blink` succeeded:
+`firmware.elf ok (276224 bytes)`. Vendor compiler warnings remain, but no
+build errors occurred. This command only compiled; it did not upload or
+change the connected board.
+
+All 90 source tests passed. Two offline integration tests use actual Git
+repositories to exercise fresh clones already at the pinned HEAD,
+interrupted clones without an index, repeated setup, sparse tree
+selection, and preservation of local cache files. SDK and compiler files
+remain outside the source checkout.

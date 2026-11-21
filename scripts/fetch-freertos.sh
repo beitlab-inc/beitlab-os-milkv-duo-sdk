@@ -64,10 +64,9 @@ fi
 if ! git -C "$SDK" cat-file -e "$COMMIT^{commit}" 2>/dev/null; then
   git -C "$SDK" fetch --filter=blob:none origin "$COMMIT"
 fi
-HEAD="$(git -C "$SDK" rev-parse HEAD 2>/dev/null || true)"
-if [ "$HEAD" != "$COMMIT" ]; then
-  git -C "$SDK" -c advice.detachedHead=false checkout --detach "$COMMIT"
-fi
+# clone --no-checkout can already have HEAD at the pin with no working
+# files/index. Always materialize the checkout, including after interruption.
+git -C "$SDK" -c advice.detachedHead=false checkout --detach "$COMMIT"
 [ "$(git -C "$SDK" rev-parse HEAD)" = "$COMMIT" ] || die "sdk/ is not at $COMMIT"
 
 got="$(sha256sum "$SDK/$(lock toolchain_file)" | cut -d' ' -f1)"
@@ -93,8 +92,7 @@ if [ "$FETCH_TC" = 1 ]; then
     git -C "$HT" sparse-checkout add "/$HT_RV/"
   fi
   git -C "$HT" cat-file -e "$HT_COMMIT^{commit}" 2>/dev/null || git -C "$HT" fetch --filter=blob:none origin "$HT_COMMIT"
-  [ "$(git -C "$HT" rev-parse HEAD 2>/dev/null || true)" = "$HT_COMMIT" ] || \
-    git -C "$HT" -c advice.detachedHead=false checkout --detach "$HT_COMMIT"
+  git -C "$HT" -c advice.detachedHead=false checkout --detach "$HT_COMMIT"
   TC="$HT/$HT_RV/bin"
 else
   TC="${PLAYGROUND_RISCV_TOOLCHAIN:-}"
