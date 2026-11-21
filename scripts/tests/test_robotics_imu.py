@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 REPO = Path(__file__).resolve().parents[2]
-SOURCE = REPO / 'examples/platformio/robotics_imu/src'
+SOURCE = REPO / 'examples/platformio/common/lib/carrier_imu'
 SPEC = importlib.util.spec_from_file_location('imu_profiles', REPO / 'firmware/profiles.py')
 profiles = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(profiles)
@@ -41,6 +41,17 @@ class IMUTest(unittest.TestCase):
                     (root / name).write_text(content)
                 (root / 'test.c').write_text(DRIVER_HARNESS)
                 self.compile_and_run(root, [SOURCE / 'i2c4.c', REPO / 'firmware/runtime/pg_profile.c'])
+
+    def test_beitlabduino_api_samples_errors_and_reinitialization(self):
+        module = REPO / 'examples/platformio/common/lib/beitlabduino_imu'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'beitlabduino.h').write_text(
+                '#include <stdint.h>\nvoid bl_delay(uint32_t);\n'
+                'void pg_print(const char *, ...);\n#define bl_print pg_print\n')
+            shutil.copyfile(module / 'beitlabduino_imu.h', root / 'beitlabduino_imu.h')
+            (root / 'test.c').write_text(SENSOR_HARNESS.split('int main(void)', 1)[0] + WRAPPER_HARNESS)
+            self.compile_and_run(root, [SOURCE / 'bmi323.c', module / 'beitlabduino_imu.c'])
 
 
 SENSOR_HARNESS = r'''
@@ -149,6 +160,79 @@ int main(void)
     return 0;
 }
 '''
+
+WRAPPER_HARNESS = r'''
+#include <stdarg.h>
+#include <stdio.h>
+#include "beitlabduino_imu.h"
+static int init_error;
+static unsigned bus_reads;
+static char message[256];
+int imu_i2c4_init(void) { return init_error; }
+int imu_i2c4_read(void *ctx, uint8_t reg, uint8_t *data, size_t length)
+{
+    bus_reads++;
+    return read_bus(ctx, reg, data, length);
+}
+int imu_i2c4_write(void *ctx, uint8_t reg, const uint8_t *data, size_t length)
+{
+    return write_bus(ctx, reg, data, length);
+}
+uint32_t imu_i2c4_abort_source(void) { return 1; }
+void bl_delay(uint32_t ms) { delay_bus(NULL, ms); }
+void pg_print(const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(message, sizeof(message), fmt, args);
+    va_end(args);
+}
+int main(void)
+{
+    bl_imu_sample_t sample, sentinel;
+    unsigned before;
+    memset(&sentinel, 0x55, sizeof(sentinel));
+    sample = sentinel;
+    assert(bl_imu_read(&sample) == BL_IMU_ERROR && bus_reads == 0);
+    assert(bl_imu_read(NULL) == BL_IMU_ERROR);
+    init_error = -1;
+    assert(bl_imu_begin() == BL_IMU_ERROR && bus_reads == 0 && writes == 0);
+    assert(strstr(message, "select beitlab_robotics_rev011_imu"));
+    init_error = -2;
+    assert(bl_imu_begin() == BL_IMU_ERROR && bus_reads == 0 && writes == 0);
+    assert(strstr(message, "bus error=-2"));
+    init_error = 0; regs[0] = 0xd1;
+    assert(bl_imu_begin() == BL_IMU_ERROR && writes == 0);
+    assert(strstr(message, "chip=d1"));
+    regs[0] = 0x43;
+    assert(bl_imu_begin() == 0 && delays >= 160);
+    assert(bl_imu_read(&sample) == BL_IMU_NOT_READY);
+    assert(!memcmp(&sample, &sentinel, sizeof(sample)));
+    regs[2] = 0xc0;
+    regs[3] = 8192; regs[4] = (uint16_t)-8192; regs[5] = 0;
+    regs[6] = 16384; regs[7] = (uint16_t)-16384; regs[8] = 0; regs[9] = 512;
+    assert(bl_imu_read(NULL) == BL_IMU_ERROR);
+    assert(bl_imu_read(&sample) == BL_IMU_SAMPLE_READY);
+    assert(sample.accel_mg[0] == 1000 && sample.accel_mg[1] == -1000 && sample.accel_mg[2] == 0);
+    assert(sample.gyro_mdps[0] == 1000000 && sample.gyro_mdps[1] == -1000000);
+    assert(sample.gyro_mdps[2] == 0 && sample.temperature_mc == 24000);
+    fail_bus = 1; sample = sentinel;
+    assert(bl_imu_read(&sample) == BL_IMU_ERROR);
+    assert(strstr(message, "read error="));
+    assert(!memcmp(&sample, &sentinel, sizeof(sample)));
+    fail_bus = 0; before = bus_reads;
+    assert(bl_imu_read(&sample) == BL_IMU_ERROR && bus_reads == before);
+    assert(bl_imu_begin() == 0);
+    regs[1] = 0x40;
+    assert(bl_imu_read(&sample) == BL_IMU_ERROR && strstr(message, "err=40"));
+    assert(bl_imu_begin() == 0);
+    regs[2] = 1;
+    assert(bl_imu_read(&sample) == BL_IMU_ERROR);
+    assert(!memcmp(&sample, &sentinel, sizeof(sample)));
+    return 0;
+}
+'''
+
 
 # Minimal host definitions of the SDK interfaces; no SDK checkout needed in CI.
 HEADERS = {

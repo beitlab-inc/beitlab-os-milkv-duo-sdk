@@ -36,6 +36,7 @@ selects the permissions for the attached hardware.
 | `beitlabduino_mailbox` | `duos_bare` | LED control through mailbox commands |
 | [`robotics_board`](../examples/platformio/robotics_board/README.md) | `beitlab_robotics_rev011` | Inspect carrier reservations and blink the onboard LED |
 | [`robotics_imu`](../examples/platformio/robotics_imu/README.md) | `beitlab_robotics_rev011_imu` | Poll the carrier BMI323 using I²C only and print readings |
+| [`beitlabduino_imu`](../examples/platformio/beitlabduino_imu/README.md) | `beitlab_robotics_rev011_imu` | The same IMU through beitlabduino setup()/loop() and typed samples |
 
 The nested `blink/heartbeat` copy also explicitly selects `duos_bare`.
 Open `examples/platformio/robotics_board` for the carrier example. It

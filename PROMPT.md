@@ -478,6 +478,12 @@ isolate the SDK's duplicate boot I²C route as inputs, and bound all
 transactions and cleanup. Build independently of both sibling trees and
 document hardware tests as pending until real readings are captured.
 
+Also provide `examples/platformio/beitlabduino_imu` using setup()/loop(),
+bl_print()/bl_delay() and an optional beitlabduino IMU API. Share the
+polling transport/decoder between both examples, retain the same profile
+and pin restrictions, and return explicit ready/wait/error states without
+changing the caller's output on an unsuccessful read.
+
 ## Flash document
 
 `docs/FLASH.md` is the only page a new user needs. It contains:

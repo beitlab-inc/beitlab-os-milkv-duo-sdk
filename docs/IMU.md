@@ -5,6 +5,11 @@
 No Linux image rebuild is needed. I²C4 belongs to the C906; do not enable
 a competing Linux driver for that controller.
 
+For a beitlabduino `setup()`/`loop()` version, use
+[`beitlabduino_imu`](../examples/platformio/beitlabduino_imu) instead of
+`robotics_imu` in the commands below. Both examples use the shared
+`common/lib/carrier_imu` driver, wiring, profile and serial output.
+
 | Connection | Carrier wiring |
 | --- | --- |
 | SCL | B1, Duo S J4 pin 50 |
@@ -59,6 +64,31 @@ adapter RX to board TX, with common ground. Do not connect adapter power
 to the carrier. Readings have `RT:` prefixes and share the Linux console.
 UART0 and login remain intact. The SSH monitor uses the C906 dump ring
 and requires no adapter. Ctrl-C leaves acquisition running.
+
+## beitlabduino API
+
+The optional `beitlabduino_imu` module performs initialization and unit
+conversion in the caller's task. The new example already selects:
+
+```ini
+custom_profile = beitlab_robotics_rev011_imu
+custom_libs = beitlabduino carrier_imu beitlabduino_imu
+```
+
+Include `beitlabduino.h` and `beitlabduino_imu.h` in your application.
+
+| API | Result |
+| --- | --- |
+| `bl_imu_begin()` | 0 on success, `BL_IMU_ERROR` (-1) on failure; allows explicit retry |
+| `bl_imu_read(&sample)` | `BL_IMU_SAMPLE_READY` (1), `BL_IMU_NOT_READY` (0), or `BL_IMU_ERROR` (-1) |
+
+`bl_imu_sample_t` has `accel_mg[3]`, `gyro_mdps[3]` and `temperature_mc`
+in the units above. Print it only when the result **equals**
+`BL_IMU_SAMPLE_READY`; output is unchanged on other results. Initialization
+waits about 160 ms. Fault diagnostics go through `bl_print`; after a read
+error call `bl_imu_begin()` again. The complete example retries once per
+second and also reinitializes after a second without fresh data.
+`bl_delay(100)` keeps output near 10 Hz. No background task is created.
 
 ## Ownership and failure handling
 

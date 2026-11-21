@@ -1179,3 +1179,31 @@ The user reports an SSH connection to the board; this new firmware was
 not uploaded automatically and no real IMU values were captured. Sensor
 association, physical serial output and bus timing/rise times remain
 pending. [IMU.md](IMU.md) contains the upload, serial and E-stop steps.
+
+### beitlabduino IMU example and API, 2026-11-21
+
+`examples/platformio/beitlabduino_imu` uses setup()/loop(), bl_print() and
+bl_delay() with the optional `beitlabduino_imu` module. `bl_imu_begin()`
+initializes the carrier BMI323; `bl_imu_read()` returns explicit sample,
+waiting or error states and converts to integer mg, mdps and mC. Caller
+output is unchanged unless a valid sample is returned. Bus/sensor faults
+are logged, and the application retries with a delay in the same task.
+
+The four existing transport/decoder files moved unchanged from
+`robotics_imu/src` into `common/lib/carrier_imu`; the original FreeRTOS
+example now selects that shared library. The new example additionally
+selects `beitlabduino` and `beitlabduino_imu`. No driver is duplicated,
+and existing beitlabduino examples need no new dependency or API changes.
+Both IMU examples retain the dedicated carrier profile and I²C-only
+behavior. No Linux image rebuild is needed for these PC-side sources.
+
+Cross-build commands use `PLATFORMIO_BUILD_DIR=<external-build>` and
+`PYTHONDONTWRITEBYTECODE=1 pio run -d <example>`: beitlabduino_imu passed
+with a 316248-byte ELF; robotics_imu and beitlabduino_blink also passed
+their builds and remoteproc ABI checks. The full local source suite
+passed. All three IMU host tests passed under address/undefined behavior
+sanitizers, including the public API's scaled samples, no-data handling,
+wrong device/initialization failure, untouched outputs on read faults,
+explicit reinitialization and brownout handling. Physical sensor readings
+and serial output from this new example remain pending; it was not
+uploaded automatically.
