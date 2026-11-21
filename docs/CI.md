@@ -87,5 +87,17 @@ beitlab-inc/beitlab-os-milkv-duo-sdk`. Then give the downloaded file to
 unauthenticated GitHub downloader supports public published releases;
 it does not expose tokens to third-party asset hosts.
 
+## Verified build
+
+[Run 44821272091](https://github.com/beitlab-inc/beitlab-os-milkv-duo-sdk/actions/runs/44821272091)
+completed the source tests, clean SDK image build, asset packaging and
+draft release upload for version 0.4.0 at commit
+`0f2fd639e071cf96452dbfb047756660bf152b4b` on 2026-11-20.
+On 2026-11-21 the downloaded assets and extracted image passed their
+checksums; the bundled imager also personalized that image while keeping
+the release original and non-boot partitions unchanged. See
+[sdk-notes.md](sdk-notes.md#github-actions-build-and-downloaded-assets-2026-11-21)
+for the image hash and remaining hardware checks.
+
 References: [GitHub runner specifications](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
 [GitHub CLI releases](https://cli.github.com/manual/gh_release_create).

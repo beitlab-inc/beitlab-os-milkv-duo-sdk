@@ -990,3 +990,57 @@ reflash warning, and the existing FAT/PTY workflow tests. Log:
 `out/imager-confirmation-tests.log`. Python compilation also passed.
 No physical drive was written; the Linux image does not need rebuilding
 for this PC-side CLI correction.
+
+### GitHub Actions build and downloaded assets, 2026-11-21
+
+The source-only repository is now
+`https://github.com/beitlab-inc/beitlab-os-milkv-duo-sdk`.
+Generated SDK, image and compiler outputs were moved to an external
+cache; no `out/` or vendored `sdk/` remains in the source checkout.
+
+Command: `gh run view 44821272091 --repo
+beitlab-inc/beitlab-os-milkv-duo-sdk --json status,conclusion,jobs`.
+Result: all three jobs (`tests`, `image`, `release`) succeeded. The
+[run](https://github.com/beitlab-inc/beitlab-os-milkv-duo-sdk/actions/runs/44821272091)
+built version 0.4.0 from commit
+`0f2fd639e071cf96452dbfb047756660bf152b4b` and finished on 2026-11-20.
+The image job took about 81 minutes on a GitHub-hosted Ubuntu 22.04 runner
+with the SDK Docker image. The build log reports
+`Ubuntu 22.04.4 LTS x86_64 (in milkvtech/milkv-duo:latest)`.
+Hosted-runner cleanup passed the 45 GiB storage preflight; a runner with
+less space fails explicitly. See [CI.md](CI.md) for configuration.
+
+The build checks confirmed the remoteproc kernel module and DT carveout,
+carrier pad reservations, regular UID 1000 account, locked root and SSH
+key defaults, restricted sudo helper, BusyBox password tooling, AIC8800
+drivers/firmware, Wi-Fi import ordering, enabled services and clean boot
+provisioning markers. The source suite also passed all 81 tests locally;
+no physical board or SD card was used.
+
+Commands: `gh release download v0.4.0 --repo
+beitlab-inc/beitlab-os-milkv-duo-sdk --dir <external-assets>`, then
+`sha256sum -c SHA256SUMS`, `xz -dk <image>.img.xz` and
+`sha256sum -c <image>.img.sha256` in that external directory.
+Result: all eight manifest entries and the extracted image passed.
+The extracted image is 941621760 bytes; its SHA256 is:
+
+`5215e3b1e2877e08200f18051d9af1c267bfabf9739de886bc49f619d1e770e1`.
+
+The downloaded `beitlab-imager-tools-0.4.0.zip` was extracted and its CLI
+help ran successfully. Its actual provisioning helper created a private
+copy of the downloaded image with fixture Wi-Fi, hostname, public key and
+per-device password hash. Reading the FAT files back matched all settings;
+the original image still matched its release hash, the partition table
+and non-boot contents matched byte-for-byte, and the release contained no
+personal settings. Temporary personalized copies were removed afterwards.
+
+The verified CI package, including both `.img.xz` and extracted `.img`,
+is copied separately from earlier local images to
+`/mnt/projects/duo-s-playground/releases/0.4.0-ci-44821272091/`.
+Both manifests were checked again on the Samba destination.
+
+The GitHub release remains a draft. Actual first-boot Wi-Fi association,
+regular-user login and the hardware acceptance sequence above remain
+pending because no Duo S is connected. Selected notices are attached;
+the source-delivery and vendor-firmware permission questions in
+[LICENSING.md](LICENSING.md) remain open before publication.
