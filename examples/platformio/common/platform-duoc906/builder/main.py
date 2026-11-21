@@ -42,7 +42,12 @@ INCLUDES = [PROJECT_DIR, env.subst("$PROJECT_INCLUDE_DIR"),
 # compiles common/lib/beitlabduino/*.c and *.S with the program and adds that
 # folder to the include path. Names are separated by spaces or commas.
 LIB_ROOT = os.path.join(REPO, "examples", "platformio", "common", "lib")
-for _lib in env.GetProjectOption("custom_libs", "").replace(",", " ").split():
+libraries = env.GetProjectOption("custom_libs", "").replace(",", " ").split()
+# Preserve existing carrier example/user configurations after sharing the
+# bounded I2C4 transport with standalone sensors.
+if "carrier_imu" in libraries and "duos_i2c4" not in libraries:
+    libraries.append("duos_i2c4")
+for _lib in libraries:
     _dir = os.path.join(LIB_ROOT, _lib)
     if not os.path.isdir(_dir):
         sys.stderr.write("custom_libs: no library %r in %s\n" % (_lib, LIB_ROOT))

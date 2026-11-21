@@ -5,10 +5,16 @@
 No Linux image rebuild is needed. I²C4 belongs to the C906; do not enable
 a competing Linux driver for that controller.
 
+For an **external BMI160 on a standalone Duo S using J3**, use the
+separate [BMI160 example and wiring guide](BMI160.md). The carrier
+examples on this page remain BMI323-specific.
+
 For a beitlabduino `setup()`/`loop()` version, use
 [`beitlabduino_imu`](../examples/platformio/beitlabduino_imu) instead of
 `robotics_imu` in the commands below. Both examples use the shared
-`common/lib/carrier_imu` driver, wiring, profile and serial output.
+`common/lib/carrier_imu` decoder and `common/lib/duos_i2c4` transport,
+wiring, profile and serial output. The builder automatically includes
+the transport when the carrier decoder library is selected.
 
 | Connection | Carrier wiring |
 | --- | --- |

@@ -1207,3 +1207,56 @@ wrong device/initialization failure, untouched outputs on read faults,
 explicit reinitialization and brownout handling. Physical sensor readings
 and serial output from this new example remain pending; it was not
 uploaded automatically.
+
+### Standalone BMI160 on J3, 2026-11-21
+
+`examples/platformio/beitlabduino_bmi160_j3` targets an external BMI160
+on a Duo S without the robotics carrier. The separate
+`duos_bare_bmi160_j3` profile inherits `duos_bare`, selects the 3.3 V J3
+I²C4 route, and grants only addresses 0x68/0x69. B20/B21 are application
+peripheral pins, not GPIO outputs. Profile validation rejects this route
+on carrier profiles, incorrect voltage/pin functions and Linux-owned
+isolation pads. All existing carrier and bare-board grants stay intact.
+
+Pin evidence: [Milk-V Duo S J3](https://milkv.io/docs/duo/getting-started/duos#header-j3)
+lists SCL on B20/J3-3, SDA on B21/J3-5, 3V3 on J3-1 and ground on J3-6.
+At `sdk.lock`, `cv181x_pinlist_swconfig.h` assigns VIVO_D1/B20 IIC4_SCL
+and VIVO_D0/B21 IIC4_SDA to function 7; the board U-Boot already selects
+those functions. The OS DT disables Linux I2C4. No Linux image change is
+needed. The shared transport moved to `common/lib/duos_i2c4`, and the
+builder automatically includes it for existing `carrier_imu` users.
+The compiled profile selects J3 or carrier routing. A stale alternate
+I²C route is disconnected only if its mux still selects I²C, using GPIO
+inputs without writing GPIO data or unrelated functions.
+
+[Bosch BST-BMI160-DS000-09](https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmi160-ds000.pdf)
+was checked for byte framing, chip ID 0xD1, reset 0xB6, PMU commands,
+power-mode status and data order. Configuration is written one byte at a
+time: the part does not support burst writes while all sensors are
+suspended. Each write gets at least 1 ms of idle time; the beitlabduino
+adapter adds a full tick to preserve minimum delays at tick boundaries.
+Startup waits cover the accelerometer and gyro transitions. Configuration
+and PMU state are verified before sampling; IRQ outputs are disabled.
+Reads have no dummy bytes, decode gyro then accelerometer, and handle
+invalid temperature separately. Sensor reset/faults require reinitialization.
+Only identity reads occur before a recognized chip is configured.
+
+`bl_bmi160_begin()` checks 0x68/0x69, `bl_bmi160_read()` returns explicit
+ready/wait/error states in integer mg/mdps/mC, and `bl_bmi160_address()`
+reports the selected address. The example uses setup()/loop(), prints
+near 10 Hz and retries faults with delays. [BMI160.md](BMI160.md) has
+wiring, CSB/SDO straps and both serial/SSH monitor instructions.
+
+Builds with `PLATFORMIO_BUILD_DIR=<external-build>
+PYTHONDONTWRITEBYTECODE=1 pio run -d <example>` passed for the new BMI160
+example (322512-byte ELF), both carrier IMU examples and standalone
+blink, including remoteproc ABI checks. The complete local source suite
+passed. Added sanitized host tests cover byte-only writes and timing,
+gyro/accelerometer ordering, signed scaling, missing/wrong sensors,
+both addresses, PMU/reset faults, preserved output on failure, J3/J4
+route isolation, address denial without MMIO and GPIO/console protection.
+The timing model includes the worst partial scheduler tick.
+
+No automatic upload, physical BMI160 readout, oscilloscope timing or
+serial capture was performed. Those checks remain pending; cross-build
+and host model results do not constitute a hardware pass.

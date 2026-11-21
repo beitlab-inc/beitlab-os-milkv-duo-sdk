@@ -8,6 +8,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[2]
 SOURCE = REPO / 'examples/platformio/common/lib/carrier_imu'
+TRANSPORT = REPO / 'examples/platformio/common/lib/duos_i2c4'
 SPEC = importlib.util.spec_from_file_location('imu_profiles', REPO / 'firmware/profiles.py')
 profiles = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(profiles)
@@ -19,7 +20,7 @@ class IMUTest(unittest.TestCase):
         binary = root / 'test'
         command = ['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
                    '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
-                   '-I' + str(root), '-I' + str(SOURCE), '-I' + str(REPO / 'firmware/include'),
+                   '-I' + str(root), '-I' + str(SOURCE), '-I' + str(TRANSPORT), '-I' + str(REPO / 'firmware/include'),
                    *map(str, sources), str(root / 'test.c'), '-o', str(binary)]
         result = subprocess.run(command, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -33,14 +34,14 @@ class IMUTest(unittest.TestCase):
             self.compile_and_run(root, [SOURCE / 'bmi323.c'])
 
     def test_i2c_policy_routes_restart_stop_abort_and_bounded_timeout(self):
-        for profile in ('duos_bare', 'beitlab_robotics_rev011', 'beitlab_robotics_rev011_imu'):
+        for profile in ('duos_bare', 'beitlab_robotics_rev011', 'beitlab_robotics_rev011_imu', 'duos_bare_bmi160_j3'):
             with self.subTest(profile=profile), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 profiles.generate_header(profiles.load_profile(profile), root / 'pg_profile_generated.h')
                 for name, content in HEADERS.items():
                     (root / name).write_text(content)
                 (root / 'test.c').write_text(DRIVER_HARNESS)
-                self.compile_and_run(root, [SOURCE / 'i2c4.c', REPO / 'firmware/runtime/pg_profile.c'])
+                self.compile_and_run(root, [TRANSPORT / 'i2c4.c', REPO / 'firmware/runtime/pg_profile.c'])
 
     def test_beitlabduino_api_samples_errors_and_reinitialization(self):
         module = REPO / 'examples/platformio/common/lib/beitlabduino_imu'
@@ -252,6 +253,14 @@ HEADERS = {
 #define VIVO_D0__IIC4_SDA 7
 #define VIVO_D1__XGPIOB_20 3
 #define VIVO_D0__XGPIOB_21 3
+#define FMUX_GPIO_FUNCSEL_ADC3 0xf0
+#define FMUX_GPIO_FUNCSEL_ADC2 0xf4
+#define FMUX_GPIO_FUNCSEL_ADC3_MASK 7
+#define FMUX_GPIO_FUNCSEL_ADC2_MASK 7
+#define ADC3__IIC4_SCL 2
+#define ADC2__IIC4_SDA 2
+#define ADC3__XGPIOB_1 3
+#define ADC2__XGPIOB_2 3
 #define PINMUX_CONFIG(pad, function) mock_pinmux(#pad, #function)
 void mock_pinmux(const char *, const char *);
 ''',
@@ -293,6 +302,7 @@ DRIVER_HARNESS = r'''
 #define DDR 0x03021004u
 static unsigned accesses, sleeps, enabled, stop, aborting, nack, stuck, disable_stuck;
 static uint32_t ddr = 0xffffffff, mux_scl = 0x107, mux_sda = 0x207;
+static uint32_t adc_scl = 0x402, adc_sda = 0x502, last_target;
 static uint32_t commands[32], ncommands, rx_pending, rx_value, tx_abort;
 uint32_t mmio_read_32(uintptr_t address)
 {
@@ -300,6 +310,8 @@ uint32_t mmio_read_32(uintptr_t address)
     if (address == DDR) return ddr;
     if (address == MUX + 0x158) return mux_scl;
     if (address == MUX + 0x15c) return mux_sda;
+    if (address == MUX + 0xf0) return adc_scl;
+    if (address == MUX + 0xf4) return adc_sda;
     assert(address >= BASE && address < BASE + 0x100);
     switch (address - BASE) {
     case 0xfc: return 0x44570140;
@@ -320,10 +332,14 @@ void mmio_write_32(uintptr_t address, uint32_t value)
     if (address == DDR) { ddr = value; return; }
     if (address == MUX + 0x158) { assert(!(ddr & (1u << 20))); mux_scl = value; return; }
     if (address == MUX + 0x15c) { assert(!(ddr & (1u << 21))); mux_sda = value; return; }
+    if (address == MUX + 0xf0) { assert(!(ddr & (1u << 1))); adc_scl = value; return; }
+    if (address == MUX + 0xf4) { assert(!(ddr & (1u << 2))); adc_sda = value; return; }
     assert(address >= BASE && address < BASE + 0xa0); /* No motor/PWM/SPI/IRQ writes. */
     switch (address - BASE) {
     case 0x6c: enabled = value & 1; break;
-    case 0x04: assert(value == 0x68); break; /* No scan or writes to servo/ADC. */
+    case 0x04:
+        assert(value == 0x68 || (value == 0x69 && pg_profile_i2c4_route() == PG_I2C4_J3));
+        last_target = value; break;
     case 0x10:
         assert(ncommands < 32); commands[ncommands++] = value;
         if (nack) { aborting = 1; tx_abort = 1; break; }
@@ -346,14 +362,18 @@ void mock_pinmux(const char *pad, const char *function)
 {
     accesses++;
     assert(!enabled);
-    assert((!strcmp(pad, "ADC3") && !strcmp(function, "IIC4_SCL")) ||
-           (!strcmp(pad, "ADC2") && !strcmp(function, "IIC4_SDA")));
+    if (pg_profile_i2c4_route() == PG_I2C4_CARRIER)
+        assert((!strcmp(pad, "ADC3") && !strcmp(function, "IIC4_SCL")) ||
+               (!strcmp(pad, "ADC2") && !strcmp(function, "IIC4_SDA")));
+    else
+        assert((!strcmp(pad, "VIVO_D1") && !strcmp(function, "IIC4_SCL")) ||
+               (!strcmp(pad, "VIVO_D0") && !strcmp(function, "IIC4_SDA")));
 }
 int main(void)
 {
     uint8_t bytes[16], payload[] = {0x98, 0x70};
     unsigned i, before;
-    if (strcmp(pg_profile_name(), "beitlab_robotics_rev011_imu")) {
+    if (pg_profile_i2c4_route() == PG_I2C4_NONE) {
         assert(imu_i2c4_init() == IMU_I2C_DENIED);
         assert(imu_i2c4_read(NULL, 3, bytes, 16) == IMU_I2C_DENIED);
         assert(imu_i2c4_write(NULL, 0x20, payload, 2) == IMU_I2C_DENIED);
@@ -364,15 +384,28 @@ int main(void)
     assert(!pg_profile_i2c_address(4, 0x68));
     assert(pg_profile_i2c_address(4, 0x40));
     assert(pg_profile_i2c_address(4, 0x48));
-    assert(pg_profile_i2c_address(4, 0x69));
+    if (pg_profile_i2c4_route() == PG_I2C4_CARRIER) assert(pg_profile_i2c_address(4, 0x69));
+    else assert(!pg_profile_i2c_address(4, 0x69));
     assert(pg_profile_i2c_address(3, 0x68));
     assert(pg_profile_gpio_output("B1", NULL));
     assert(pg_profile_gpio_output("B2", NULL));
     assert(pg_profile_gpio_output("B19", NULL));
+    assert(pg_profile_gpio_output("B20", NULL) && pg_profile_gpio_output("B21", NULL));
+    assert(pg_profile_gpio_output("A16", NULL) && pg_profile_gpio_output("A17", NULL));
     assert(pg_profile_resource("spi3") && pg_profile_resource("pwm0"));
     assert(imu_i2c4_init() == 0);
-    assert(ddr == (0xffffffffu & ~((1u << 20) | (1u << 21))));
-    assert(mux_scl == 0x103 && mux_sda == 0x203);
+    if (pg_profile_i2c4_route() == PG_I2C4_CARRIER) {
+        assert(ddr == (0xffffffffu & ~((1u << 20) | (1u << 21))));
+        assert(mux_scl == 0x103 && mux_sda == 0x203);
+    } else {
+        assert(ddr == (0xffffffffu & ~((1u << 1) | (1u << 2))));
+        assert(adc_scl == 0x403 && adc_sda == 0x503);
+        assert(mux_scl == 0x107 && mux_sda == 0x207);
+        assert(imu_i2c4_init_at(0x69) == 0);
+        assert(imu_i2c4_read(NULL, 0, bytes, 1) == 0 && last_target == 0x69);
+        assert(imu_i2c4_init() == 0);
+        ncommands = rx_value = 0;
+    }
     assert(imu_i2c4_read(NULL, 3, bytes, sizeof(bytes)) == 0);
     assert(ncommands == 17 && commands[0] == 3);
     assert(commands[1] == (IC_CMD | 0x400));
@@ -380,6 +413,9 @@ int main(void)
     assert(commands[16] == (IC_CMD | IC_STOP));
     for (i = 0; i < 16; i++) assert(bytes[i] == i);
     assert(!enabled);
+    before = accesses;
+    assert(imu_i2c4_init_at(0x40) == IMU_I2C_DENIED && accesses == before);
+    assert(imu_i2c4_init() == 0);
     ncommands = 0;
     assert(imu_i2c4_write(NULL, 0x20, payload, sizeof(payload)) == 0);
     assert(ncommands == 3 && commands[0] == 0x20);

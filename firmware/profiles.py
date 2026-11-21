@@ -43,7 +43,8 @@ def load_profile(name=DEFAULT_PROFILE, directory=PROFILE_DIR, _parents=()):
             not isinstance(s, str) or not s for s in sources):
         raise ProfileError("profile needs source references: %s" % name)
     parent = load_profile(data["extends"], directory, _parents + (name,)) \
-        if "extends" in data else {"pins": {}, "reserved_resources": {}, "sources": [], "i2c_devices": {}}
+        if "extends" in data else {"pins": {}, "reserved_resources": {}, "sources": [],
+                                   "i2c_devices": {}, "i2c4_route": None}
     pins = dict(parent["pins"])
     entries = data.get("pins", {})
     if not isinstance(entries, dict):
@@ -59,7 +60,7 @@ def load_profile(name=DEFAULT_PROFILE, directory=PROFILE_DIR, _parents=()):
         if pins.get(pad, {}).get("owner") == "linux" and entry["owner"] != "linux":
             raise ProfileError("cannot release Linux pin: %s" % pad)
         if entry["owner"] == "application" and (
-                pad[0] == "E" or entry.get("function") != "gpio_output" or
+                pad[0] == "E" or entry.get("function") not in ("gpio_output", "i2c4_scl", "i2c4_sda") or
                 entry.get("voltage") not in ("1.8", "3.3") or
                 not isinstance(entry.get("connector"), str) or not entry["connector"]):
             raise ProfileError("application pin needs supported function, voltage and connector: %s" % pad)
@@ -77,18 +78,35 @@ def load_profile(name=DEFAULT_PROFILE, directory=PROFILE_DIR, _parents=()):
     if not isinstance(devices, dict):
         raise ProfileError("i2c_devices must be an object: %s" % name)
     i2c.update(devices)
+    route = data.get("i2c4_route", parent["i2c4_route"])
+    if route not in (None, "carrier", "j3"):
+        raise ProfileError("unverified I2C4 route: %r" % route)
     for bus, addresses in i2c.items():
-        # Only this carrier route has SDK mux and electrical evidence so far.
         if bus != "i2c4" or not isinstance(addresses, list) or not addresses or any(
                 type(address) is not int or not 0x08 <= address <= 0x77 for address in addresses):
             raise ProfileError("invalid or unverified I2C grant: %s" % bus)
         if len(set(addresses)) != len(addresses):
             raise ProfileError("duplicate I2C address: %s" % bus)
-        if any(pins.get(pad, {}).get("owner") != "robot" for pad in ("B1", "B2", "B20", "B21")):
-            raise ProfileError("I2C4 grant requires the carrier's reserved B1/B2 route and B20/B21 boot-route isolation")
+        if route == "carrier":
+            if any(pins.get(pad, {}).get("owner") != "robot" for pad in ("B1", "B2", "B20", "B21")):
+                raise ProfileError("carrier I2C4 requires reserved B1/B2 and B20/B21 isolation pads")
+        elif route == "j3":
+            if any(pin["owner"] == "robot" for pin in pins.values()):
+                raise ProfileError("J3 I2C4 is forbidden on carrier profiles")
+            if any(pins.get(pad, {}).get("owner") == "linux" for pad in ("B1", "B2")):
+                raise ProfileError("cannot isolate Linux-owned I2C4 pads")
+            for pad, function, connector in (("B20", "i2c4_scl", "J3-3"), ("B21", "i2c4_sda", "J3-5")):
+                entry = pins.get(pad, {})
+                if (entry.get("owner"), entry.get("function"), entry.get("voltage"), entry.get("connector")) != (
+                        "application", function, "3.3", connector):
+                    raise ProfileError("J3 I2C4 requires the verified 3.3 V B20/B21 pair")
+            if any(address not in (0x68, 0x69) for address in addresses):
+                raise ProfileError("J3 BMI160 route grants only addresses 0x68/0x69")
+        else:
+            raise ProfileError("I2C4 device grant requires an explicit verified route")
     return {"id": name, "description": data["description"],
             "sources": parent["sources"] + sources,
-            "pins": pins, "reserved_resources": reserved, "i2c_devices": i2c}
+            "pins": pins, "reserved_resources": reserved, "i2c_devices": i2c, "i2c4_route": route}
 
 
 def generate_header(profile, destination):
@@ -97,9 +115,10 @@ def generate_header(profile, destination):
              "static const char profile_name[] = %s;" % quote(profile["id"]),
              "static const struct profile_pin profile_pins[] = {"]
     for pad, entry in sorted(profile["pins"].items()):
-        allowed = entry["owner"] == "application"
+        allowed = entry["owner"] == "application" and entry.get("function") == "gpio_output"
         reason = "" if allowed else "%s; reserved for %s" % (
-            entry["purpose"], "robot firmware" if entry["owner"] == "robot" else "Linux")
+            entry["purpose"], entry.get("function") if entry["owner"] == "application" else
+            "robot firmware" if entry["owner"] == "robot" else "Linux")
         lines.append("    {%d, %d, %d, %s}," % (
             ord(pad[0]) - ord("A"), int(pad[1:]), allowed, quote(reason)))
     # Sentinel also permits a manifest with no pins/resources, without zero-length arrays.
@@ -112,7 +131,9 @@ def generate_header(profile, destination):
     for bus, addresses in sorted(profile["i2c_devices"].items()):
         for address in sorted(addresses):
             lines.append("    {%d, %d}," % (int(bus[3:]), address))
-    lines += ["    {255, 0}", "};", ""]
+    lines += ["    {255, 0}", "};",
+              "static const unsigned profile_i2c4_route = %d;" %
+              {None: 0, "carrier": 1, "j3": 2}[profile["i2c4_route"]], ""]
     Path(destination).write_text("\n".join(lines))
 
 

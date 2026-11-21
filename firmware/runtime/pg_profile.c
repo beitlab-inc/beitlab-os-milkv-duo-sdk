@@ -80,3 +80,8 @@ const char *pg_profile_i2c_address(unsigned bus, unsigned address)
 			return NULL;
 	return "I2C device not allowed by this profile";
 }
+
+enum pg_i2c4_route pg_profile_i2c4_route(void)
+{
+	return (enum pg_i2c4_route)profile_i2c4_route;
+}

@@ -22,4 +22,10 @@ const char *pg_profile_resource(const char *name);
  * A device grant never grants general GPIO output on the bus/route pads. */
 const char *pg_profile_i2c_address(unsigned bus, unsigned address);
 
+enum pg_i2c4_route {
+	PG_I2C4_NONE = 0, PG_I2C4_CARRIER = 1, PG_I2C4_J3 = 2
+};
+/* Verified controller routing; no MMIO. J3 is only for a standalone Duo S. */
+enum pg_i2c4_route pg_profile_i2c4_route(void);
+
 #endif

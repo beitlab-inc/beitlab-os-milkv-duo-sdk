@@ -23,6 +23,7 @@ selects the permissions for the attached hardware.
 | Profile | Allowed GPIO outputs | Reserved connections |
 | --- | --- | --- |
 | `duos_bare` | A18, A19, A20, A28, A29 | Linux console, storage, networking and USB; every output not explicitly verified |
+| `duos_bare_bmi160_j3` | Same as `duos_bare`; B20/B21 are I²C only | Standalone BMI160 at 0x68/0x69 on 3.3 V J3 pins 3/5; no carrier |
 | `beitlab_robotics_rev011` | A29 (onboard blue LED) | All 24 pads in carrier map revision 0.11; SPI3, I2C4 and PWM controllers 0–2; Linux resources |
 | `beitlab_robotics_rev011_imu` | A29 (unused by IMU example) | Carrier reservations retained; only BMI323 at I2C4 address 0x68 granted through the checked driver |
 
@@ -33,6 +34,7 @@ selects the permissions for the attached hardware.
 | `heartbeat` | `duos_bare` | Optional header GPIO heartbeat; disabled by default |
 | `blink` | `duos_bare` | LED heartbeat selected in `pin.h` |
 | `beitlabduino_blink` | `duos_bare` | LED blink with setup()/loop() |
+| [`beitlabduino_bmi160_j3`](../examples/platformio/beitlabduino_bmi160_j3/README.md) | `duos_bare_bmi160_j3` | External BMI160 on standalone Duo S J3, using setup()/loop() |
 | `beitlabduino_mailbox` | `duos_bare` | LED control through mailbox commands |
 | [`robotics_board`](../examples/platformio/robotics_board/README.md) | `beitlab_robotics_rev011` | Inspect carrier reservations and blink the onboard LED |
 | [`robotics_imu`](../examples/platformio/robotics_imu/README.md) | `beitlab_robotics_rev011_imu` | Poll the carrier BMI323 using I²C only and print readings |
@@ -98,11 +100,12 @@ until enabled in `pin.h`, and any enabled pin must pass the selected profile.
 
 `pg_profile_gpio_output()` inspects permissions without touching hardware.
 `pg_profile_resource()` explains peripheral reservations. There are currently
-no general PWM/SPI APIs. The IMU example has a local checked I²C4 driver
-and an explicit grant for address 0x68. Drivers must check both
+no general PWM/SPI APIs. The shared `duos_i2c4` driver checks the selected
+carrier/J3 route and explicit target grants. Drivers must check both
 `pg_profile_resource()` and `pg_profile_i2c_address()` before controller
-or pinmux access. Device grants never permit GPIO output on B1/B2.
-See [IMU.md](IMU.md) for boot-route isolation and diagnostic limits.
+or pinmux access. Device grants never permit general GPIO output on bus
+pads. See [IMU.md](IMU.md) for the carrier or [BMI160.md](BMI160.md) for
+the standalone J3 connection.
 
 ## Maintain the profiles
 
@@ -113,17 +116,21 @@ connections with reservations. It references `board_carrier.h` revision
 to build an example. Add a new manifest for a different hardware revision.
 
 An application pin entry needs `owner = application`,
-`function = gpio_output`, `voltage`, `connector` and `purpose`. Record
+`function = gpio_output`, `voltage`, `connector` and `purpose`. Peripheral
+bus entries instead use `i2c4_scl`/`i2c4_sda`; those do not grant GPIO
+output. Record
 schematic/pinout, SDK mux and Linux ownership evidence in the manifest's
 `sources` before adding a grant. A child profile cannot release a Linux
 pin. Unknown pins and resources are denied. Manifests contain pad identities,
 not guessed register addresses; the driver uses the pinned SDK GPIO bases.
 
 `i2c_devices` lists explicitly granted seven-bit addresses, for example
-`{"i2c4": [104]}` for the BMI323 diagnostic. Only the carrier's verified
-I²C4 route is supported; B1/B2 and the B20/B21 boot-route isolation pads
-must retain carrier reservations. Invalid, duplicate and reserved I²C
-addresses are rejected. The normal carrier profile has no device grant.
+`{"i2c4": [104]}` for the BMI323 diagnostic. `i2c4_route = "carrier"`
+requires reserved B1/B2 and B20/B21 isolation pads. `i2c4_route = "j3"`
+requires a standalone profile with the verified 3.3 V B20/B21 pair;
+carrier inheritance and Linux-owned isolation pads are rejected. This
+route grants only the BMI160 addresses 0x68/0x69. Invalid, duplicate and
+reserved addresses are rejected. The normal carrier profile has no grant.
 
 The builder generates the selected policy in its object directory and links
 it into the ELF. It prints the profile name during a build; programs can

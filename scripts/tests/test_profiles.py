@@ -37,6 +37,29 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(diagnostic['pins'], carrier['pins'])
         self.assertEqual(diagnostic['reserved_resources'], carrier['reserved_resources'])
 
+    def test_standalone_j3_profile_and_invalid_route_grants(self):
+        bare = profiles.load_profile('duos_bare')
+        j3 = profiles.load_profile('duos_bare_bmi160_j3')
+        self.assertEqual(j3['i2c4_route'], 'j3')
+        self.assertEqual(j3['i2c_devices'], {'i2c4': [0x68, 0x69]})
+        for pad, pin in bare['pins'].items():
+            self.assertEqual(j3['pins'][pad], pin)
+        self.assertFalse(any(pin['owner'] == 'robot' for pin in j3['pins'].values()))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for path in profiles.PROFILE_DIR.glob('*.json'):
+                shutil.copyfile(path, root / path.name)
+            original = json.loads((root / 'duos_bare_bmi160_j3.json').read_text())
+            variants = [{'extends': 'beitlab_robotics_rev011'}, {'i2c4_route': None},
+                        {'i2c4_route': 'unknown'}, {'i2c_devices': {'i2c4': [0x40]}},
+                        {'pins': dict(original['pins'], B20=dict(original['pins']['B20'], function='gpio_output'))},
+                        {'pins': dict(original['pins'], B21=dict(original['pins']['B21'], voltage='1.8'))},
+                        {'pins': dict(original['pins'], B1={'owner': 'linux', 'purpose': 'must not isolate Linux'})}]
+            for variant in variants:
+                with self.subTest(variant=variant), self.assertRaises(profiles.ProfileError):
+                    (root / 'test.json').write_text(json.dumps(dict(original, id='test', **variant)))
+                    profiles.load_profile('test', root)
+
     def test_invalid_manifest_and_linux_override_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -8,5 +8,6 @@
     "sdk.lock: freertos/cvitek/hal/cv181x/config/cv181x_pinlist_swconfig.h: ADC3/ADC2 IIC4 function 2",
     "sdk.lock: board u-boot/cvi_board_init.c: VIVO_D1/VIVO_D0 boot IIC4 route must become GPIO inputs before using ADC3/ADC2"
   ],
-  "i2c_devices": {"i2c4": [104]}
+  "i2c_devices": {"i2c4": [104]},
+  "i2c4_route": "carrier"
 }

@@ -1,0 +1,17 @@
+{
+  "id": "duos_bare_bmi160_j3",
+  "extends": "duos_bare",
+  "description": "Standalone Duo S with external BMI160 on 3.3 V J3 I2C4; no robotics carrier",
+  "sources": [
+    "https://milkv.io/docs/duo/getting-started/duos#header-j3: B20 J3-3 SCL, B21 J3-5 SDA, 3.3 V",
+    "sdk.lock: board u-boot/cvi_board_init.c selects VIVO_D1/VIVO_D0 IIC4",
+    "sdk.lock: cv181x_pinlist_swconfig.h: VIVO_D1/B20 and VIVO_D0/B21 IIC4 function 7",
+    "image/dts/playground_duos.dtsi disables Linux I2C4; docs/BMI160.md"
+  ],
+  "pins": {
+    "B20": {"owner": "application", "function": "i2c4_scl", "voltage": "3.3", "connector": "J3-3", "purpose": "external BMI160 I2C clock, not GPIO output"},
+    "B21": {"owner": "application", "function": "i2c4_sda", "voltage": "3.3", "connector": "J3-5", "purpose": "external BMI160 I2C data, not GPIO output"}
+  },
+  "i2c_devices": {"i2c4": [104, 105]},
+  "i2c4_route": "j3"
+}

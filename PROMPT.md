@@ -484,6 +484,18 @@ polling transport/decoder between both examples, retain the same profile
 and pin restrictions, and return explicit ready/wait/error states without
 changing the caller's output on an unsuccessful read.
 
+### Standalone BMI160 on J3
+
+Provide `examples/platformio/beitlabduino_bmi160_j3` for a Duo S with no
+robotics carrier. Use I²C4 on J3 pin 3/B20 (SCL) and pin 5/B21 (SDA),
+with 3.3 V module power/logic and beitlabduino setup()/loop(). Select a
+separate `duos_bare_bmi160_j3` profile inheriting the bare board; retain
+Linux reservations and forbid the J3 route on carrier profiles. Permit
+only 0x68/0x69 identity probes and configure only BMI160 chip ID 0xD1.
+Use its byte protocol, suspend-safe individual writes, minimum timing,
+power/range checks, bounded transfers and unchanged output on failure.
+Share the existing I²C transport while preserving carrier routing.
+
 ## Flash document
 
 `docs/FLASH.md` is the only page a new user needs. It contains:
