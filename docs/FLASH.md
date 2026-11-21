@@ -40,6 +40,15 @@ python3 scripts/beitlab-imager.py --image /path/to/your.img \
 
 `--list-drives` needs no image, administrator access or mtools. `--dry-run` performs setup without selecting, unmounting or writing a disk. `--prepare-only` saves an image for another writer. Add `--no-emoji`/`--no-color` for plain output; `NO_COLOR` is honored. Non-interactive password entry is refused if it would expose a password.
 
+**Already prepared your image? Burn it with its saved settings:**
+
+```sh
+python3 scripts/beitlab-imager.py --flash-only \
+  --image "$HOME/Downloads/my-duo-wifi.img"
+```
+
+Keep the personal image's `.sha256` beside it. The wizard verifies the image, asks you to choose the microSD card and type the full `ERASE /dev/...` confirmation, then writes and reads back the card. It skips Wi-Fi, hostname and account prompts and keeps the saved settings and source image unchanged. Use your actual prepared image path; `--flash-only` requires `--image` and does not use `--output` or `--prepare-only`. This mode needs no mtools or GitHub login.
+
 **GitHub downloads.** A supplied `--image` always wins. Without it, configure `github_repository` in [imager.json](../imager.json), set `BEITLAB_IMAGE_REPO=OWNER/REPO`, or pass:
 
 ```sh

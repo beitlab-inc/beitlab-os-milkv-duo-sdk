@@ -406,6 +406,87 @@ class UITest(unittest.TestCase):
             self.assertEqual(actual, image)
 
 
+class PreparedImageTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.image = Path(self.temp.name) / 'personal.img'
+        # Minimal boot header; flash-only must not require FAT editing tools.
+        data = bytearray(4096)
+        data[450] = 0x0C
+        struct.pack_into('<II', data, 454, 1, 7)
+        data[510:512] = b'\x55\xaa'
+        struct.pack_into('<H', data, 512 + 22, 1)
+        data[512 + 43:512 + 54] = b'boot       '
+        data[1022:1024] = b'\x55\xaa'
+        self.image.write_bytes(data)
+        self.original = bytes(data)
+        self.digest = hashlib.sha256(data).hexdigest()
+        self.image.with_suffix('.img.sha256').write_text(self.digest + '  personal.img\n')
+        self.args = CLI.argparse.Namespace(image=self.image, sha256=None, flash_only=True,
+                                          list_drives=False, output=None, prepare_only=False, dry_run=False)
+        self.drive = CLI.argparse.Namespace(path='/dev/imager-fixture', model='Fixture card',
+                                           size=32_000_000_000, identity='fixture-identity')
+
+    def test_prepared_image_skips_settings_and_uses_existing_writer(self):
+        def which(name):
+            self.assertEqual(name, 'sudo', 'flash-only must not need mtools')
+            return '/usr/bin/sudo'
+
+        for uid in (0, 1000):
+            with self.subTest(uid=uid), patch.object(CLI.sys.stdin, 'isatty', return_value=True), \
+                 patch.object(CLI.os, 'geteuid', return_value=uid), patch.object(CLI.shutil, 'which', side_effect=which), \
+                 patch.object(CLI, 'settings', side_effect=AssertionError('must keep saved settings')) as settings, \
+                 patch.object(CLI, 'capabilities', side_effect=AssertionError('must not inspect/edit FAT')) as capabilities, \
+                 patch.object(sources, 'github_image') as download, \
+                 patch.object(CLI, 'choose_drive', return_value=self.drive) as choose, \
+                 patch.object(drives, 'flash') as flash, patch.object(CLI, 'run_worker') as worker, \
+                 contextlib.redirect_stdout(io.StringIO()) as transcript:
+                ui = CLI.UI(False, False)
+                CLI.execute(self.args, ui)
+                settings.assert_not_called()
+                capabilities.assert_not_called()
+                download.assert_not_called()
+                choose.assert_called_once_with(ui, [self.image, self.image], len(self.original))
+                if uid == 0:
+                    flash.assert_called_once_with(self.image, self.drive.path, self.drive.identity, self.digest, ui)
+                    worker.assert_not_called()
+                else:
+                    flash.assert_not_called()
+                    argv = worker.call_args.args[0]
+                    self.assertEqual(argv[0:2], ['sudo', '--'])
+                    self.assertEqual(argv[5:9], [str(self.image), self.drive.path, self.digest, self.drive.identity])
+                self.assertIn('Using the Wi-Fi and account settings already saved', transcript.getvalue())
+                self.assertNotIn('image default / Ethernet', transcript.getvalue())
+                self.assertEqual(self.image.read_bytes(), self.original)
+
+    def test_bad_checksum_or_boot_header_stops_before_drive_selection(self):
+        for invalid in ('checksum', 'boot header'):
+            with self.subTest(invalid=invalid):
+                if invalid == 'checksum':
+                    self.image.with_suffix('.img.sha256').write_text('0' * 64 + '  personal.img\n')
+                else:
+                    self.image.write_bytes(b'not a Duo S image')
+                    digest = sources.digest_file(self.image)
+                    self.image.with_suffix('.img.sha256').write_text(digest + '  personal.img\n')
+                with patch.object(CLI.sys.stdin, 'isatty', return_value=True), \
+                     patch.object(CLI, 'choose_drive') as choose, patch.object(drives, 'flash') as flash, \
+                     contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ValueError):
+                    CLI.execute(self.args, CLI.UI(False, False))
+                choose.assert_not_called()
+                flash.assert_not_called()
+
+    def test_flash_only_requires_local_image_and_rejects_preparation_flags(self):
+        for flags in ([], ['--image', str(self.image), '--prepare-only'],
+                      ['--image', str(self.image), '--output', '/tmp/unused.img'],
+                      ['--image', str(self.image), '--dry-run'],
+                      ['--image', str(self.image), '--list-drives']):
+            with self.subTest(flags=flags), patch.object(CLI.sys, 'argv', ['beitlab-imager.py', '--flash-only', *flags]), \
+                 contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exit_status:
+                CLI.main()
+            self.assertEqual(exit_status.exception.code, 2)
+
+
 @unittest.skipUnless(all(shutil.which(name) for name in ('mcopy', 'mdir', 'mmd', 'mkfs.vfat')), 'needs mtools/dosfstools (SDK container)')
 class RealFATWizardTest(unittest.TestCase):
     def test_cli_prepares_image_over_a_real_terminal_without_touching_disks(self):

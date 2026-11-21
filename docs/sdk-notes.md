@@ -1073,3 +1073,17 @@ handling, corrupt-download cleanup, cross-repository asset refusal,
 size limits, missing login/tool handling, and the private-release error
 message. Existing real-FAT/PTY personalization and extracted-bundle tests
 also passed. Hardware Wi-Fi association remains pending.
+
+### Burn an already prepared image, 2026-11-21
+
+`python3 scripts/beitlab-imager.py --flash-only --image <personal.img>`
+verifies the local checksum and Duo S boot header, then reuses the existing
+drive selection, confirmation and write/read-back flow. It does not run
+the settings wizard, edit FAT files or download anything. The mode needs
+no mtools and keeps the source image and saved settings unchanged.
+
+The source suite passed all 88 tests. New tests cover root and sudo-worker
+paths using a mocked writer, preservation of the exact image bytes and
+checksum, rejection of corrupt images before drive selection, and invalid
+mode combinations. Existing drive protection, confirmation and read-back
+tests also passed. No physical card was written during these checks.

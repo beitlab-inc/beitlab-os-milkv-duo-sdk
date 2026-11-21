@@ -10,6 +10,7 @@ The robot control core lives in [Balanced_robot](../Balanced_robot/README.md). T
 
 - Run **🤖 beitlab Imager** with `python3 scripts/beitlab-imager.py --image /path/to/your.img` for guided Wi-Fi setup and card flashing. It checks checksums, hides passwords, discovers removable drives and verifies the write. Requires Python 3.9+ and `mtools`; native Linux/macOS.
 - To download the private GitHub draft and generate an image with Wi-Fi settings, sign in with `gh auth login --hostname github.com`, then run `python3 scripts/beitlab-imager.py --github-auth --release v0.4.0 --prepare-only --output "$HOME/Downloads/my-duo.img"` using the latest repository scripts. See [FLASH.md](docs/FLASH.md) for prerequisites and prompts.
+- To burn an image you already prepared, run `python3 scripts/beitlab-imager.py --flash-only --image "$HOME/Downloads/my-duo.img"`. It keeps the saved settings and asks only for card selection and erase confirmation.
 - [docs/FLASH.md](docs/FLASH.md) takes you from a blank card to the `hello` banner.
 - [docs/sdk-notes.md](docs/sdk-notes.md) records what the pinned SDK contains, the decisions taken, and the acceptance-test results.
 - [docs/PROFILES.md](docs/PROFILES.md) selects bare-Duo or robotics-carrier pin permissions in PlatformIO.

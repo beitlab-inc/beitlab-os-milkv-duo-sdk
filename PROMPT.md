@@ -218,6 +218,13 @@ tokens out of command arguments and Python download headers. Require an
 explicit release tag for a draft; keep `latest` limited to published
 releases. Verify authenticated downloads before personalizing the image.
 
+Provide `--flash-only --image <prepared-image>` to burn an existing
+personalized image without asking for Wi-Fi, hostname or account settings
+again. Preserve the input image and its settings, verify its checksum and
+boot header, and retain the same drive protections, exact confirmation
+and read-back verification used by the guided setup flow. Do not require
+mtools or a GitHub login for this local flash-only path.
+
 If neither Ethernet nor Wi-Fi has a usable address after a short startup
 grace period, ask on J22 whether to configure Wi-Fi before the login prompt.
 An unattended boot must time out to the normal login. Accept an SSID and

@@ -66,13 +66,14 @@ class UI:
         prefix = icon + " " if self.emoji and icon else ""
         print(prefix + plain(message), flush=True)
 
-    def banner(self):
+    def banner(self, flash_only=False):
         title = "beitlab  /  ROBOTICS"
         if self.color:
             title = "\033[1;36m" + title + "\033[0m"
         print("\n" + title)
         self.say("MilkV duo OS · Card Imager", "🤖")
-        self.say("Choose image  →  Set up board  →  Select card  →  Flash & verify")
+        setup = "Use saved settings" if flash_only else "Set up board"
+        self.say(f"Choose image  →  {setup}  →  Select card  →  Flash & verify")
         self.say("Ctrl-C cancels at any step.")
 
     def step(self, number, title, icon):
@@ -267,7 +268,7 @@ def choose_drive(ui, paths, size):
 
 
 def execute(args, ui):
-    ui.banner()
+    ui.banner(args.flash_only)
     if args.list_drives:
         inventory = drives.scan()
         for drive in inventory:
@@ -280,7 +281,7 @@ def execute(args, ui):
         raise ValueError("the wizard requires an interactive terminal; use --list-drives for read-only discovery")
     if not (sys.platform.startswith("linux") or sys.platform == "darwin"):
         raise ValueError("This version flashes on Linux/macOS. Native Windows flashing is not implemented.")
-    if not shutil.which("mcopy") or not shutil.which("mdir"):
+    if not args.flash_only and (not shutil.which("mcopy") or not shutil.which("mdir")):
         raise ValueError("Install mtools first: sudo apt install mtools (Linux), or brew install mtools (macOS)")
     if args.prepare_only and not args.output:
         raise ValueError("--prepare-only requires --output for the personal image")
@@ -290,29 +291,37 @@ def execute(args, ui):
     with tempfile.TemporaryDirectory(prefix="beitlab-imager-") as folder:
         temporary = Path(folder)
         image, original = image_source(args, ui, temporary)
-        features = capabilities(image, config)
-        wifi, hostname, keys, user, ssid, account = settings(ui, config, features)
-        target = args.output.expanduser().resolve() if args.output else temporary / "personal.img"
-        if wifi is not None or hostname is not None or keys is not None or user is not None:
-            ui.say("Preparing your first-boot settings…", "🛠️")
-            config["configure_image"](image, target, wifi, hostname, keys, user)
-            image = target
-        elif args.output:
-            with image.open("rb") as source, target.open("xb") as output:
-                os.chmod(target, 0o600)
-                shutil.copyfileobj(source, output, sources.CHUNK)
-            digest = sources.digest_file(target, ui.progress)
-            config["private_write"](target.with_name(target.name + ".sha256"), f"{digest}  {target.name}\n")
-            image = target
-        if args.output:
-            ui.say(f"Personal image saved: {image}")
-        if args.prepare_only or args.dry_run:
-            ui.say("Preparation complete. No disk was opened for writing.", "✅")
-            return
+        if args.flash_only:
+            config["boot_offset"](image)  # Validate the Duo S image without mtools or mounting.
+            ui.step(2, "Use saved board settings", "⚙️")
+            ui.say("Using the Wi-Fi and account settings already saved in this image.")
+        else:
+            features = capabilities(image, config)
+            wifi, hostname, keys, user, ssid, account = settings(ui, config, features)
+            target = args.output.expanduser().resolve() if args.output else temporary / "personal.img"
+            if wifi is not None or hostname is not None or keys is not None or user is not None:
+                ui.say("Preparing your first-boot settings…", "🛠️")
+                config["configure_image"](image, target, wifi, hostname, keys, user)
+                image = target
+            elif args.output:
+                with image.open("rb") as source, target.open("xb") as output:
+                    os.chmod(target, 0o600)
+                    shutil.copyfileobj(source, output, sources.CHUNK)
+                digest = sources.digest_file(target, ui.progress)
+                config["private_write"](target.with_name(target.name + ".sha256"), f"{digest}  {target.name}\n")
+                image = target
+            if args.output:
+                ui.say(f"Personal image saved: {image}")
+            if args.prepare_only or args.dry_run:
+                ui.say("Preparation complete. No disk was opened for writing.", "✅")
+                return
         drive = choose_drive(ui, [image, original], image.stat().st_size)
         ui.step(4, "Review & flash", "🚀")
         ui.say(f"Image: {original.name}")
-        ui.say(f"Hostname: {hostname or 'image default'} · Wi-Fi: {ssid or 'image default / Ethernet'}")
+        if args.flash_only:
+            ui.say("Board settings: saved in the prepared image.")
+        else:
+            ui.say(f"Hostname: {hostname or 'image default'} · Wi-Fi: {ssid or 'image default / Ethernet'}")
         ui.say(f"Target: {drive.path} · {drive.model} · {drive.size / 1_000_000_000:.1f} GB")
         expected = sources.digest_file(image, ui.progress)
         if os.geteuid() == 0:
@@ -326,7 +335,10 @@ def execute(args, ui):
                             *(["--no-emoji"] if not ui.emoji else []),
                             *(["--no-color"] if not ui.color else [])])
         ui.say("Set the Duo S switch to ARM before power-on.", "🔌")
-        ui.say(f"After boot: ssh {account}@{hostname or 'beitlab-milkv-duo'}.local", "✨")
+        if args.flash_only:
+            ui.say("After boot, connect using the hostname and login saved when you prepared this image.", "✨")
+        else:
+            ui.say(f"After boot: ssh {account}@{hostname or 'beitlab-milkv-duo'}.local", "✨")
         ui.say("On the Beitlab carrier, power the carrier and leave USB-C disconnected.")
 
 
@@ -340,12 +352,18 @@ def main():
     parser.add_argument("--cache-dir", type=Path, default=Path.home() / ".cache/beitlab-imager")
     parser.add_argument("--output", type=Path, help="keep a personal image instead of only a temporary copy")
     parser.add_argument("--prepare-only", action="store_true", help="save the configured image without flashing (requires --output)")
+    parser.add_argument("--flash-only", action="store_true", help="burn an existing prepared --image without changing its settings")
     parser.add_argument("--dry-run", action="store_true", help="run image setup without selecting, unmounting or writing a disk")
     parser.add_argument("--list-drives", action="store_true", help="read-only drive discovery; no image or mtools needed")
     parser.add_argument("--no-color", action="store_true")
     parser.add_argument("--no-emoji", action="store_true")
     parser.add_argument("--_flash-worker", nargs=4, metavar=("IMAGE", "DRIVE", "SHA256", "IDENTITY"), help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.flash_only:
+        if args.image is None:
+            parser.error("--flash-only requires --image pointing to your prepared image")
+        if args.output or args.prepare_only or args.dry_run or args.list_drives:
+            parser.error("--flash-only cannot be combined with --output, --prepare-only, --dry-run or --list-drives")
     ui = UI(not args.no_color, not args.no_emoji)
     writing = bool(args._flash_worker)
     try:
