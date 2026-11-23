@@ -742,7 +742,7 @@ link) asks for the fields with `bl_send` and writes
 ```json
 {"format": 1, "time": "2026-11-23T10:00:00Z", "carrier": "found",
  "imu": {"ok": true, "chip_id": "0x43"},
- "rails": {"ok": true, "vbat": 7.62, "vservo": 6.01, "v5": 5.31, "vmot": 7.55},
+ "rails": {"ok": true, "vbat": 15.21, "vservo": 6.01, "v5": 5.31, "vmot": 15.12},
  "servo_driver": {"ok": true, "mode1": "0x11"},
  "driver_fault": {"ok": true, "level": "high", "note": "valid while drivers are awake"},
  "warnings": []}

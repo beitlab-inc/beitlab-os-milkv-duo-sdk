@@ -59,6 +59,8 @@ timed-out request could not be told from a reply.
 | Ids | Use |
 |---|---|
 | 0x00-0x4f | free for programs |
+| 0x10, 0x11 | board inspector (Robotics Board image starter): `PLAYGROUND_CMD_INSPECT_STATE`, `PLAYGROUND_CMD_INSPECT_FIELD`, read by `beitlab-board-status` |
+| 0x12-0x17 | reserved for the board inspector |
 | 0x40 | ping (`PLAYGROUND_CMD_PING`): the starter, `mailbox_ping`, `host_ping` |
 | 0x41, 0x42 | used by `beitlabduino_mailbox` (LED mode, blink period) |
 | 0x50-0x5f | vendor `SYS_CMD_ID`s, handled by the runtime; cannot be subscribed |
