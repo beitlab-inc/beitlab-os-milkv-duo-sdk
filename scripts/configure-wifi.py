@@ -282,8 +282,8 @@ def configure_image(source, destination, content=None, hostname=None, ssh_keys=N
     if board is not None:
         found = image_board(source.resolve(), offset)
         if found != board:
-            raise ValueError(f"this is the {BOARD_LABEL.get(found, 'pre-0.5.0')} image, not the {BOARD_LABEL[board]} "
-                             "image; pick the image for your board")
+            raise ValueError(f"wrong image: this is the {BOARD_LABEL.get(found, 'pre-0.5.0 image')}, "
+                             f"not the {BOARD_LABEL[board]}; pick the image for your board")
     checksum_path = destination.with_name(destination.name + ".sha256")
     if checksum_path.exists():
         raise FileExistsError(f"{checksum_path} already exists")

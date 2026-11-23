@@ -346,8 +346,8 @@ def execute(args, ui):
                     board = found
                     ui.say(f"This image is for: {config['BOARD_LABEL'][found]}")
                 elif found != board:
-                    raise ValueError(f"this is the {config['BOARD_LABEL'].get(found, 'unknown')} image, not the "
-                                     f"{config['BOARD_LABEL'][board]} image; choose the image for your board")
+                    raise ValueError(f"wrong image: this is the {config['BOARD_LABEL'].get(found, 'unknown image')}, "
+                                     f"not the {config['BOARD_LABEL'][board]}; choose the image for your board")
             wifi, hostname, keys, user, ssid, account = settings(ui, config, features)
             if hostname is not None:
                 studio, code, url = studio_settings(ui, config, features, hostname)

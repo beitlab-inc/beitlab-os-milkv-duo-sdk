@@ -1382,6 +1382,35 @@ Tests: `python3 -m pytest -q scripts/tests`: 138 passed (host Ubuntu 24.04, Busy
 e2fsprogs 1.47.0). The Studio's `tools/mock_board` runs this link against fake `rtos-control` and
 `bl_send`; the Studio's end-to-end test claims it by hostname and claim code.
 
-**Not built, not verified on hardware:** the 0.5.0 image has not been built (the full SDK cache
-was removed earlier; a new full checkout is needed), the Robotics Board inspector firmware is not
+**Not verified on hardware:** the Robotics Board inspector firmware is not
 written yet (build with `--standalone-only` until then), and the link has not run on a Duo S.
+
+### OS 0.5.0 standalone image build, 2026-11-23
+
+`scripts/build-image.sh --docker --standalone-only` in `milkvtech/milkv-duo:latest` (Ubuntu
+22.04.4 LTS x86_64) on the Ubuntu 24.04 host, after a fresh full SDK checkout at the unchanged
+`sdk.lock` commit. Log: `~/.cache/beitlab-duo-os/reports/build-0.5.0-standalone.log`.
+
+Two fixes were needed before it built, both because host PlatformIO builds and the image build
+share the SDK's `freertos/cvitek/build` CMake caches:
+
+- the container now mounts the SDK, output and build folders at their host paths (CMake refused
+  caches made under another path);
+- `build-rtos-libs.sh` keeps the generator an existing cache was made with (the host has no
+  ninja and uses Unix Makefiles; the container has ninja).
+
+Result: exit 0; every check in `build-checks.txt` passed, including
+`ok: duos_standalone: python3 (ssl, no pip), beitlab-link enabled, board identity, starter, no
+Studio secrets` and the boot-volume check (all setup markers, `board duos_standalone`, no personal
+settings). The image has Python 3.12.9 and systemd 256.7 (`LoadCredential=` needs 247 or newer);
+`/usr/bin/beitlab-link` in the rootfs tarball is byte-identical to `link/beitlab-link.py`.
+
+- Image: `beitlab-robotics-milkv-duo-os-0.5.0-duos-standalone-arm64-sd.img`, 941621760 bytes,
+  SHA256 `435ac674fdc757e6ccd97879b6f50c8c92731242a0213087e68fb6d50f845c68`.
+- `configure-image.py --board duos-standalone --hostname robot-test --studio-url
+  http://192.168.1.116:8090 --no-wifi` on a copy wrote `studio.conf`, `device-secret` and
+  `hostname` to the FAT volume and printed the board card; `--board robotics-board` was refused.
+  The copy was deleted; the release image's checksum is unchanged.
+
+**Not verified on hardware:** the image has not been flashed or booted. The Robotics Board image
+is not built (no inspector firmware yet).
