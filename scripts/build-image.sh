@@ -57,14 +57,17 @@ if [ "$DOCKER" = 1 ]; then
   command -v docker >/dev/null || die "--docker needs docker"
   IMG="$(lock docker_image)"
   say "running in $IMG"
+  # The SDK, output and build folders are mounted at their host paths: CMake caches
+  # (FreeRTOS libraries, also used by host PlatformIO builds) record absolute
+  # paths and refuse a different mount point.
   # The SDK container runs as root (Milk-V's documented usage). GNU
   # autoconf packages Buildroot builds (host-tar, coreutils) refuse to
   # configure as root unless FORCE_UNSAFE_CONFIGURE=1.
   mkdir -p "$SDK" "$OUT" "$BUILD"
   exec docker run --rm -v "$REPO:/home/work" -w /home/work \
-    -v "$SDK:/home/sdk" -v "$OUT:/home/output" -v "$BUILD:/home/build" \
-    -e PLAYGROUND_SDK=/home/sdk -e BEITLAB_OUTPUT_DIR=/home/output \
-    -e BEITLAB_BUILD_DIR=/home/build -e PYTHONDONTWRITEBYTECODE=1 \
+    -v "$SDK:$SDK" -v "$OUT:$OUT" -v "$BUILD:$BUILD" \
+    -e PLAYGROUND_SDK="$SDK" -e BEITLAB_OUTPUT_DIR="$OUT" \
+    -e BEITLAB_BUILD_DIR="$BUILD" -e PYTHONDONTWRITEBYTECODE=1 \
     -e FORCE_UNSAFE_CONFIGURE=1 \
     -e PLAYGROUND_README_URL="${PLAYGROUND_README_URL:-}" \
     -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
