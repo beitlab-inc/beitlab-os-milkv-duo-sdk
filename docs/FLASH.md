@@ -7,7 +7,7 @@ This page takes you from a blank microSD card to the `hello` program running on 
 - an Ethernet cable to your network, or a Wi-Fi-equipped Duo S (a serial adapter is optional when Wi-Fi is preconfigured),
 - a second computer.
 
-Image file: `beitlab-robotics-milkv-duo-os-<version>-duos-arm64-sd.img`. Download it from the repository Releases or Samba. Local builds write to `~/.cache/beitlab-duo-os/releases/<version>/`, alongside `SHA256SUMS`; no `out/` directory is kept in the source checkout. See [CI.md](CI.md).
+Image file: `beitlab-robotics-milkv-duo-os-<version>-duos-arm64-sd.img`. Download it from the repository Releases. Local builds write to `~/.cache/beitlab-duo-os/releases/<version>/`, alongside `SHA256SUMS`; no `out/` directory is kept in the source checkout. See [CI.md](CI.md).
 
 ## 1. Write the card
 
@@ -49,32 +49,48 @@ python3 scripts/beitlab-imager.py --flash-only \
 
 Keep the personal image's `.sha256` beside it. The wizard verifies the image, asks you to choose the microSD card and type the full `ERASE /dev/...` confirmation, then writes and reads back the card. It skips Wi-Fi, hostname and account prompts and keeps the saved settings and source image unchanged. Use your actual prepared image path; `--flash-only` requires `--image` and does not use `--output` or `--prepare-only`. This mode needs no mtools or GitHub login.
 
-**GitHub downloads.** A supplied `--image` always wins. Without it, configure `github_repository` in [imager.json](../imager.json), set `BEITLAB_IMAGE_REPO=OWNER/REPO`, or pass:
+**Local images during development.** Use `--image` with the 0.4.1 image from
+the local release share. Keep its checksum sidecar or `SHA256SUMS` beside
+it. A supplied `--image` always takes priority over GitHub, including when
+a repository is configured. Local flashing needs no GitHub login.
+
+**Public releases for clients.** Once the configured repository is public
+and an image release is published, clients can extract the tools ZIP and
+run this from its folder:
 
 ```sh
-python3 scripts/beitlab-imager.py --github-repo OWNER/REPO
-python3 scripts/beitlab-imager.py --github-repo OWNER/REPO --release v0.4.0
+python3 scripts/beitlab-imager.py
 ```
 
-The GitHub `origin` remote is also detected when available. With no repository configured, the CLI prompts for a local image and offers a local external-cache image if present. The configured repository is `beitlab-inc/beitlab-os-milkv-duo-sdk`.
+This downloads the latest published release, verifies its SHA256, then
+runs the same board-configuration and flashing wizard. Public downloads
+need no GitHub account, token, Git installation or GitHub CLI. To select
+a particular published version, add `--release v0.4.1` once that release
+exists.
 
-**Use the current private v0.4.0 draft.** With the latest repository scripts, install [GitHub CLI](https://cli.github.com/) and sign in once using an account with access to the repository. Then run the Python wizard to download, verify, unpack and configure your own image:
+The distributed [imager.json](../imager.json) sets `github_repository`.
+It currently names `beitlab-inc/beitlab-os-milkv-duo-sdk`; update that field
+if the future public release repository has a different name. Clients
+then use the command above without entering a repository. A one-off
+`--github-repo OWNER/REPO` or `BEITLAB_IMAGE_REPO=OWNER/REPO` overrides it.
+The GitHub `origin` remote is a final fallback. With no repository
+configured, the wizard prompts for a local image path.
 
-```sh
-sudo apt install python3 mtools openssl gh    # Linux; macOS: brew install mtools openssl gh
-gh auth login --hostname github.com
-mkdir -p "$HOME/Downloads"
-python3 scripts/beitlab-imager.py --github-auth --release v0.4.0 \
-  --prepare-only --output "$HOME/Downloads/my-duo.img"
-```
+**Optional private/draft access for development.** Only private downloads
+need `--github-auth`, GitHub CLI and `gh auth login --hostname github.com`.
+Drafts also need an explicit `--release` tag; `latest` selects published
+releases. Credentials remain inside GitHub CLI's transport. This is not
+required for the public client workflow.
 
-Enter the Wi-Fi SSID, country and hidden password, hostname, and public SSH key at the prompts. SSH keys are the default; password SSH is enabled only if you select that access method. The result is `my-duo.img` and its `.sha256` sidecar, ready for Raspberry Pi Imager's **Use custom** option or Etcher. The original downloaded release stays unchanged. Keep the personal image private because it contains your Wi-Fi PSK.
-
-To configure and flash in the same wizard, omit `--prepare-only`; keeping `--output` saves the personal image too. `--github-auth` delegates authenticated requests to your existing `gh` login and does not accept tokens in command arguments. Authenticated asset requests are limited to that repository's GitHub API endpoints. Without that flag, downloads remain anonymous. Drafts require an explicit `--release` tag; `latest` selects a published release.
-
-The original v0.4.0 tools ZIP predates `--github-auth`. Use the latest scripts from this repository for the command above. With that older ZIP, download the image and `SHA256SUMS` using `gh release download v0.4.0 --repo beitlab-inc/beitlab-os-milkv-duo-sdk`, then pass the local image with `--image`.
-
-Release images must be named `beitlab-robotics-milkv-duo-os-<version>-duos-arm64-sd.img` (optionally `.xz`/`.gz`). The CLI uses the GitHub asset's SHA256 digest or a matching `SHA256SUMS`/`<asset-name>.sha256` asset. Compressed assets need the compressed file's checksum. Missing hashes, mismatches and HTTPS downgrades are refused. Verified downloads are cached in `~/.cache/beitlab-imager`; incomplete downloads are discarded. The CLI downloads assets; it does not publish releases.
+Release images must be named `beitlab-robotics-milkv-duo-os-<version>-duos-arm64-sd.img`
+(optionally `.xz`/`.gz`). Attach the compressed image and its matching
+`SHA256SUMS` from the generated release assets. The downloader uses the
+GitHub asset's SHA256 digest or a matching checksum asset; compressed
+images require the compressed file's checksum. Verified downloads are
+cached in `~/.cache/beitlab-imager`, then unpacked automatically. Missing
+hashes, mismatches and HTTPS downgrades are refused. The wizard downloads
+assets and does not publish releases. Current local 0.4.1 images are not
+made available on GitHub merely by rebuilding or packaging them.
 
 ### Configure an image directly
 
@@ -85,7 +101,7 @@ Release images may be compressed as `.img.xz`. For the direct helper below, extr
 ```sh
 (cd "$HOME/Downloads" && sha256sum -c SHA256SUMS --ignore-missing)
 python3 scripts/configure-image.py \
-  --image $HOME/Downloads/beitlab-robotics-milkv-duo-os-0.4.0-duos-arm64-sd.img \
+  --image $HOME/Downloads/beitlab-robotics-milkv-duo-os-0.4.1-duos-arm64-sd.img \
   --output $HOME/Downloads/my-duo.img \
   --ssid "Your network" --country CO \
   --hostname robot-01 --ssh-key ~/.ssh/id_ed25519.pub --user-password

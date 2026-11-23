@@ -1,3 +1,8 @@
+> **Obsolete images:** OS releases before 0.4.0 shipped a universal root
+> password (`playground`) with root SSH enabled. Those credentials are
+> recorded below as history only. Reflash any board still running such an
+> image; 0.4.0 and later lock root and have no default password.
+
 > Historical `out/` and `sdk/` paths below describe earlier local builds. These generated directories were removed from the source checkout on 2026-11-20; current paths and GitHub build/release instructions are in [CI.md](CI.md).
 
 # SDK notes
@@ -574,11 +579,11 @@ The SDK log also shows a few `make ... Error 1 (ignored)` lines in vendor instal
 
 ## Acceptance tests
 
-The image is built (above). Test 8 is a dtb inspection, which PROMPT.md says does not need the carrier, and it passes on the kernel-built dtb. On 2026-11-19 the image ran on a Duo S, booted from SD and reached over Wi-Fi (`wlan0` 192.168.1.110). Tests 3-7 were driven from the build PC with PlatformIO 6.2.0 and paramiko 5.1.0. The output is under "Bench run 2026-11-19" below.
+The image is built (above). Test 8 is a dtb inspection, which PROMPT.md says does not need the carrier, and it passes on the kernel-built dtb. On 2026-11-19 the image ran on a Duo S, booted from SD and reached over Wi-Fi (`wlan0` <board-ip>). Tests 3-7 were driven from the build PC with PlatformIO 6.2.0 and paramiko 5.1.0. The output is under "Bench run 2026-11-19" below.
 
 | # | Test | Status | Notes |
 | --- | --- | --- | --- |
-| 1 | Image identity: ping, SSH root/playground, release file matches `sdk.lock`, `rtos-agent.service` active | **passed on Wi-Fi**; Ethernet not recorded | `ping 192.168.1.110` from the PC: 3/3 replies; SSH as root/playground works; release file matches `sdk.lock` (commit `6f8962c3…`, target `milkv-duos-glibc-arm64-sd`); `rtos-agent`, `sshd`, `avahi-daemon`, `playground-modules` all `active`. The board was on Wi-Fi, and `ip -4 addr` showed no Ethernet address, so the Ethernet first-boot link is not yet shown |
+| 1 | Image identity: ping, SSH root/playground, release file matches `sdk.lock`, `rtos-agent.service` active | **passed on Wi-Fi**; Ethernet not recorded | `ping <board-ip>` from the PC: 3/3 replies; SSH as root/playground works; release file matches `sdk.lock` (commit `6f8962c3…`, target `milkv-duos-glibc-arm64-sd`); `rtos-agent`, `sshd`, `avahi-daemon`, `playground-modules` all `active`. The board was on Wi-Fi, and `ip -4 addr` showed no Ethernet address, so the Ethernet first-boot link is not yet shown |
 | 2 | `state=running` within 30 s; serial shows `RT:` and `playground starter` | **passed** | `Booting fw image playground.elf` at 10.60 s and `is now up` at 10.70 s after boot (`journalctl -b -k -o short-monotonic`); `state=running`; `rtos-agent log` shows `RTD: playground starter 0.1.0`. UART0 console: the user reported on 2026-11-19 that the serial output is correct; no console capture is attached |
 | 3 | PlatformIO `hello` upload returns 0, state stays running, `playground hello` seen, SSH session alive, `uptime` not reset | **passed** | `pio run -t upload` → exit 0; `state=running`; log `RTD: playground hello Nov 19 2026 21:07:22`; the SSH session opened before the upload answered after it; `/proc/uptime` 1515.52 → 1519.92 with the same `boot_id` `e6a267c8-…` |
 | 4 | Text file: exit 2, previous program still running | **passed** | `rtos-agent load /tmp/bad.txt` → `bad file: /tmp/bad.txt: not an ELF file`, `exit=2`; `status` afterwards still `state=running` |
@@ -650,7 +655,7 @@ $ rtos-agent lock                              -> locked
 $ python3 ../common/upload.py .pio/build/hello/firmware.elf
 locked
 The board is locked. Open the E-stop, then run:
-  ssh root@192.168.1.110 rtos-agent unlock
+  ssh root@<board-ip> rtos-agent unlock
 upload.py exit=3          (through pio: "*** [upload] Error 3", pio exit 1)
 $ rtos-agent unlock; pio run -t upload         -> exit 0, state=running
 # test 6
@@ -675,7 +680,7 @@ Fixes forced by this run:
 
 ### Bench run 2, 2026-11-20 (`scripts/acceptance.py`)
 
-After a reboot, from the build PC over SSH to `duo-playground.local` (mDNS resolved to `192.168.1.111`, `wlan0`): `PIO_DUO_PASS=playground scripts/acceptance.py`. Full log: `out/acceptance-20261120T022120Z.log`.
+After a reboot, from the build PC over SSH to `duo-playground.local` (mDNS resolved to `<board-ip>`, `wlan0`): `PIO_DUO_PASS=playground scripts/acceptance.py`. Full log: `out/acceptance-20261120T022120Z.log`.
 
 | # | result | detail |
 | --- | --- | --- |
@@ -963,7 +968,7 @@ the outstanding complete source/vendor permission review.
 Final image SHA256:
 `945c43d5bcb66379fe153f0bfa5220daea6777688da1625a400d2df9e84e5164`.
 The 941621760-byte image and `beitlab-first-boot-tools-0.4.0.zip` were
-copied to the established Samba directory `/mnt/projects/duo-s-playground`,
+copied to the internal release share,
 each with an adjacent `.sha256`. Both destination copies were read back
 and their checksums matched. The local 0.4.0 build artifact remains in out/.
 
@@ -1036,8 +1041,8 @@ personal settings. Temporary personalized copies were removed afterwards.
 
 The verified CI package, including both `.img.xz` and extracted `.img`,
 is copied separately from earlier local images to
-`/mnt/projects/duo-s-playground/releases/0.4.0-ci-44821272091/`.
-Both manifests were checked again on the Samba destination.
+the internal release share.
+Both manifests were checked again on that share.
 
 The GitHub release remains a draft. Actual first-boot Wi-Fi association,
 regular-user login and the hardware acceptance sequence above remain
@@ -1260,3 +1265,88 @@ The timing model includes the worst partial scheduler tick.
 No automatic upload, physical BMI160 readout, oscilloscope timing or
 serial capture was performed. Those checks remain pending; cross-build
 and host model results do not constitute a hardware pass.
+
+### Mailbox access for the board operator, 2026-11-21
+
+`ssh beitlab@beitlab-milkv-duo.local 'id; ls -l /dev/cvi-rtos-cmdqu'`
+reported UID/GID 1000 and a root:root device with mode 0600. The pinned
+SDK's `osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c` has no capability or UID
+check in its open/ioctl handlers; Linux device permissions caused the
+sudo requirement. The image now installs
+`etc/udev/rules.d/70-beitlab-mailbox.rules` with this exact rule:
+
+```
+SUBSYSTEM=="misc", KERNEL=="cvi-rtos-cmdqu", OWNER="root", GROUP="beitlab", MODE="0660"
+```
+
+The local and SSH `bl_send` wrappers run as the caller. This intentionally
+grants the operator all vendor mailbox ioctls, including access to the
+hardware controlled by the running C906 program. It adds no sudo allowlist
+entries and does not change remoteproc uploads or the root-only agent.
+The example README documents updating a flashed board without rebooting.
+
+`PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s scripts/tests
+-p 'test_user_*.py' -v`: all 13 account and upload tests passed, including
+noninteractive mailbox SSH routing, literal argument quoting, and existing
+privileged helper restrictions. Shell syntax and `git diff --check` passed.
+The release rootfs checker now requires the root-owned mailbox rule.
+
+Built `bl_send` with the pinned host-tools aarch64 compiler and staged it
+with the rule in `/home/beitlab/.cache/beitlab-mailbox/` on the connected
+board. Its rejected-ping argument check ran successfully as UID 1000
+without transmitting a hardware command. That board has no installed
+`bl_send` or password-setup marker. Applying the rule requires interactive
+administration; the device permissions and actual mailbox I/O remain
+unverified until that one-time step. No Linux image rebuild or reboot
+was performed.
+
+### OS 0.4.1 image rebuild, 2026-11-21
+
+Bumped `VERSION` to 0.4.1 and built the complete SD image with the mailbox
+udev rule. The image now includes `/usr/bin/bl_send`, cross-compiled
+statically with the pinned aarch64 host-tools compiler. A fresh card needs
+no separate tool installation or sudo for mailbox commands as `beitlab`.
+Root remains the device owner; only the `beitlab` group gains device
+read/write access. General sudo, agent restrictions and remoteproc
+stop/start uploads retain their existing behavior.
+
+Build: `scripts/build-image.sh --in-docker` in the supported
+`milkvtech/milkv-duo:latest` container (Ubuntu 22.04.4 LTS x86_64), on the
+Ubuntu 24.04.5 LTS host. Container image ID:
+`sha256:63d71ea6fb2c2fb23ee34b68892ace67ed8a0c66954ed47b5cb793443fead679`.
+Reused the external full SDK cache at the unchanged `sdk.lock` commit and
+mounted it at `/home/work/sdk` to preserve its cached absolute build
+paths; the current source checkout was mounted at `/home/source`. SDK,
+compiler, build and release artifacts remain outside the source tree.
+The starter reports `a1b9fa8-dirty`, identifying the current base commit
+plus the uncommitted release changes.
+
+The full build completed with exit 0. All 94 source tests passed, as did
+the agent unit/CLI checks, four release-packaging tests, udev syntax
+validation, and final kernel/DT/carrier, account/SSH/sudo, BusyBox,
+network/identity/service-ordering and credential-free boot checks.
+The rootfs checker requires the mailbox rule, root-owned executable
+`bl_send`, and the operator group.
+
+A read-only debugfs inspection of the root partition extracted from the
+finished SD image confirmed OS 0.4.1, the exact rule, group and tool
+permissions, and AArch64 architecture. Executable `.text`, `.rodata` and
+`.data` match the compiler output; the SDK strips symbols when packaging.
+A temporary personal copy passed actual FAT readback of Wi-Fi, hostname,
+public key and user-password hash, checksum verification, and unchanged
+release image, MBR and non-boot partition checks. Temporary credentials
+were removed with that copy. This image has not been flashed or booted
+on hardware; direct mailbox I/O from a fresh 0.4.1 card remains pending.
+
+Release outputs:
+
+- `~/.cache/beitlab-duo-os/releases/0.4.1/`: uncompressed image, agent,
+  `SHA256SUMS`, complete build/test logs and image inspection script.
+- `~/.cache/beitlab-duo-os/assets/0.4.1/`: compressed image, extracted-image
+  checksum sidecar, current imager tools, notices and verified asset hashes.
+- Internal release share: verified copies; compressed downloads and tools are in its `assets/` folder.
+
+Image size: 941621760 bytes. Image SHA256:
+`427f7c6fafd3aaf7fcc669b8798e0324536c81bfc90c72a8ecf0109b9d835d45`.
+Compressed image size: 49098864 bytes. Neither an SD card nor the running
+board was changed, and no GitHub release was published.

@@ -53,6 +53,18 @@ class UploadTest(unittest.TestCase):
         with patch.object(UPLOAD.duo_ssh, "USER", "root"):
             self.assertEqual(UPLOAD.duo_ssh.agent_command("load", "/tmp/a.elf"), "rtos-agent load /tmp/a.elf")
 
+    def test_mailbox_uses_noninteractive_user_session_and_preserves_arguments(self):
+        from unittest.mock import Mock
+        for arguments, command in ((["0x41", "1"], "bl_send 0x41 1"),
+                                   (["$(id)"], "bl_send '$(id)'")):
+            session = Mock()
+            session.run.return_value = 2
+            with self.subTest(arguments=arguments), patch.object(UPLOAD.duo_ssh, "USER", "beitlab"), patch.object(UPLOAD.duo_ssh, "Session", return_value=session):
+                self.assertEqual(UPLOAD.duo_ssh.main(["duo_ssh.py", "bl_send", *arguments]), 2)
+            session.run.assert_called_once_with(command)
+            session.admin.assert_not_called()
+            session.close.assert_called_once_with()
+
 
 if __name__ == "__main__":
     unittest.main()

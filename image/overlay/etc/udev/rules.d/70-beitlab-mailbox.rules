@@ -1,0 +1,2 @@
+# The board operator can use the C906 mailbox without elevating Linux tools.
+SUBSYSTEM=="misc", KERNEL=="cvi-rtos-cmdqu", OWNER="root", GROUP="beitlab", MODE="0660"

@@ -14,7 +14,7 @@ password:
 
 ```sh
 python3 scripts/configure-image.py \
-  --image $HOME/Downloads/beitlab-robotics-milkv-duo-os-0.4.0-duos-arm64-sd.img \
+  --image $HOME/Downloads/beitlab-robotics-milkv-duo-os-0.4.1-duos-arm64-sd.img \
   --output $HOME/Downloads/my-duo.img --no-wifi \
   --ssh-key ~/.ssh/id_ed25519.pub --user-password
 ```
@@ -86,3 +86,9 @@ security/redistribution audit.
 
 References: [OpenSSH server configuration](https://man.openbsd.org/sshd_config),
 [sudo documentation](https://www.sudo.ws/docs/).
+
+Since OS 0.4.1, the mailbox device is owned by `root:beitlab` with mode
+0660. The `beitlab` group can run `bl_send` and other mailbox clients
+without sudo. This grants all vendor mailbox ioctls and access to the
+hardware controlled by the C906 program; other users have no access.
+The agent and remoteproc administration still use the restricted helper.

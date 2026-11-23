@@ -80,16 +80,23 @@ Run the workflow from Actions → **Build OS image** → **Run workflow**, or:
 gh workflow run image.yml --repo beitlab-inc/beitlab-os-milkv-duo-sdk
 ```
 
-The configured repository is currently private. With the latest repository
-scripts, sign in using `gh auth login --hostname github.com`, then run
-`python3 scripts/beitlab-imager.py --github-auth --release v0.4.0
---prepare-only --output /path/to/my-duo.img`. The wizard downloads and
-verifies the asset, then prompts for Wi-Fi and account settings. Drafts
-need an explicit tag; `latest` selects published releases. See [FLASH.md](FLASH.md)
-for setup and the alternative using a locally downloaded image. The original
-v0.4.0 tools ZIP predates authenticated downloading; use the latest repository
-scripts for `--github-auth`. Anonymous downloads continue to support public
-releases, and credentials remain inside GitHub CLI's transport.
+During development, use a local image with
+`python3 scripts/beitlab-imager.py --image /path/to/image.img`.
+The local 0.4.1 build is independent of GitHub release publication.
+
+For future client distribution, make the release repository public,
+configure its `OWNER/REPO` in the bundled `imager.json`, and publish a
+reviewed release with the generated assets. Clients then run
+`python3 scripts/beitlab-imager.py` to obtain the latest published image,
+verify it, configure their board and flash the card. Public downloads
+need no GitHub login, account or GitHub CLI. An explicit `--release` can
+select a particular published version.
+
+Private or draft release downloads remain an optional developer workflow:
+use `--github-auth` after `gh auth login --hostname github.com`, with an
+explicit `--release` tag for a draft. The configured repository is
+currently `beitlab-inc/beitlab-os-milkv-duo-sdk`; change the bundle setting
+if the future public release repository differs. See [FLASH.md](FLASH.md).
 
 ## Verified build
 

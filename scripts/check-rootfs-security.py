@@ -16,6 +16,7 @@ def check(path):
 
         assert rows("etc/passwd")["beitlab"][2:4] == ["1000", "1000"]
         assert rows("etc/passwd")["beitlab"][5:] == ["/home/beitlab", "/bin/sh"]
+        assert rows("etc/group")["beitlab"][2] == "1000"
         shadow = rows("etc/shadow")
         assert shadow["root"][1].startswith(("!", "*")), "root password must be locked"
         assert shadow["beitlab"][1].startswith(("!", "*")), "release must have no shared user password"
@@ -27,6 +28,11 @@ def check(path):
         assert policy.uid == 0 and policy.mode & 0o777 == 0o440
         assert "NOPASSWD: /usr/libexec/playground/rtos-control" in text("etc/sudoers")
         assert "NOPASSWD: ALL" not in text("etc/sudoers")
+        mailbox_rule = files["etc/udev/rules.d/70-beitlab-mailbox.rules"]
+        assert mailbox_rule.uid == 0 and mailbox_rule.mode & 0o022 == 0
+        assert 'SUBSYSTEM=="misc", KERNEL=="cvi-rtos-cmdqu", OWNER="root", GROUP="beitlab", MODE="0660"' in text("etc/udev/rules.d/70-beitlab-mailbox.rules")
+        mailbox_tool = files["usr/bin/bl_send"]
+        assert mailbox_tool.uid == 0 and mailbox_tool.mode & 0o7777 == 0o755
         config = text("etc/ssh/sshd_config")
         for directive in ("PermitRootLogin no", "PasswordAuthentication no", "PermitEmptyPasswords no",
                           "KbdInteractiveAuthentication no", "AllowGroups beitlab", "MaxAuthTries 3"):

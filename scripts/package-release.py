@@ -53,7 +53,15 @@ def package(source, destination, version):
             archive.write(REPO / "imager.json", "imager.json")
             archive.write(REPO / "VERSION", "VERSION")
             archive.write(REPO / "THIRD_PARTY_NOTICES", "THIRD_PARTY_NOTICES")
-            archive.writestr("START-HERE.txt", "Run python3 scripts/beitlab-imager.py --image /path/to/image.img.xz\nInstall Python 3.10+, mtools and OpenSSL. See docs/FLASH.md.\n")
+            archive.writestr("START-HERE.txt",
+                             "Install Python 3.10+, mtools and OpenSSL. See docs/FLASH.md.\n\n"
+                             "Local image (current development workflow):\n"
+                             "  python3 scripts/beitlab-imager.py --image /path/to/image.img.xz\n\n"
+                             "Public GitHub Releases (once the configured repository is public and has a published image):\n"
+                             "  python3 scripts/beitlab-imager.py\n"
+                             "Downloads and verifies the latest published image before setup and flashing.\n"
+                             "No GitHub account or GitHub CLI is needed for public downloads.\n"
+                             "The release repository is set in imager.json.\n")
         notices = destination / f"beitlab-upstream-notices-{version}.zip"
         with zipfile.ZipFile(notices, "x", compression=zipfile.ZIP_DEFLATED) as archive:
             root = REPO / "image/overlay/usr/share/licenses/beitlab"
@@ -69,6 +77,8 @@ def package(source, destination, version):
             "Duo S ARM64 SD image. Extract the .img.xz or open it with beitlab Imager.\n"
             "Use the regular beitlab account and provision your SSH public key before boot.\n"
             "Root SSH is disabled; there is no default password.\n\n"
+            "Includes bl_send; the beitlab group can use the C906 mailbox without sudo.\n"
+            "General administration still requires password-authenticated sudo.\n\n"
             "Build, remoteproc/DT, account and Wi-Fi payload checks passed. "
             "Fresh-card hardware verification is still required.\n\n"
             "This draft includes selected upstream notices. Complete corresponding-source "

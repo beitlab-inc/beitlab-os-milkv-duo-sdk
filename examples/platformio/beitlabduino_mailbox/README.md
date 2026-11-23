@@ -44,20 +44,20 @@ its output and exit code back to your terminal. It is the same as
 typing:
 
 ```bash
-ssh -t beitlab@<board> sudo bl_send 0x41 1
+ssh beitlab@<board> bl_send 0x41 1
 ```
 
 `bl_send.sh` adds only the connection settings `upload` uses
 (`PIO_DUO_HOST`, `PIO_DUO_USER`, `PIO_DUO_PASS`). Each command opens a
 new SSH connection, which takes a moment. That is fine for trying
 commands by hand. A PC program can do the same: run
-`ssh -t beitlab@<board> sudo bl_send ...`, then read the printed value and the exit
+`ssh beitlab@<board> bl_send ...`, then read the printed value and the exit
 code.
 
 **On the Duo S itself** (steps 2 to 8):
 
 ```bash
-ssh -t beitlab@<board>            # log in once, from the PC
+ssh beitlab@<board>               # log in once, from the PC
 bl_send 0x41 1              # now on the board: prints 1
 bl_send 0x42 100            # prints 100
 ```
@@ -77,7 +77,7 @@ platformio.ini      env beitlabduino_mailbox, custom_libs = beitlabduino
 src/main.c          the C906 program: setup(), loop(), command handling
 linux/bl_send.c     the Linux tool (runs on the Duo S, aarch64)
 linux/install.py    builds bl_send on the PC and installs /usr/bin/bl_send
-bl_send.sh          runs sudo bl_send from the PC over SSH (or directly on the board)
+bl_send.sh          runs bl_send from the PC over SSH (or directly on the board)
 mailbox-path.svg    the diagram above (plain SVG text, editable)
 ```
 
@@ -140,7 +140,11 @@ Expect `beitlabduino mailbox on A29, commands 0x00000041 0x00000042`
 (`%x` always prints 8 hex digits), and the LED
 blinking at 500 ms.
 
-**3. Install the Linux tool** (once; it stays until the SD card is re-flashed)
+**3. Check the Linux tool**
+
+OS 0.4.1 and later include `/usr/bin/bl_send` and the mailbox access rule.
+Skip the installation below on these images.
+For an older image, install the tool once (it stays until the SD card is re-flashed):
 
 ```bash
 python3 linux/install.py
@@ -161,8 +165,9 @@ aarch64 compiler from the SDK host-tools (`sdk.lock`
 ./bl_send.sh 0x42 9999     # out of range  -> "refused", exit 4
 ```
 
-On the board itself (`ssh -t beitlab@<board>`), the same is `sudo bl_send 0x41 1`.
-Only root can open `/dev/cvi-rtos-cmdqu`.
+On the board itself (`ssh beitlab@<board>`), the same is `bl_send 0x41 1`.
+The image grants the `beitlab` group read/write access to `/dev/cvi-rtos-cmdqu`;
+mailbox commands do not need sudo.
 
 ## The Linux side
 
@@ -184,7 +189,7 @@ reply value, so scripts can use it. The exit code says what happened:
 A shell script on the board can drive the C906 with it:
 
 ```sh
-for p in 400 200 100 50; do sudo bl_send 0x42 $p && sleep 2; done
+for p in 400 200 100 50; do bl_send 0x42 $p && sleep 2; done
 ```
 
 To talk to the C906 from your own Linux program, copy what `bl_send.c`
@@ -208,4 +213,22 @@ content: the ioctl returns 0 even on timeout.
 - `beitlabduino: ... refused` in the log: the message says why (pad or command id).
 - To stop it: `ssh -t beitlab@<board> sudo -n /usr/libexec/playground/rtos-control recover` restarts the starter firmware. Linux stays up.
 
-OS 0.4.0 uses `beitlab` and SSH keys. The one-time Linux tool installer and custom `bl_send` commands use interactive password-authenticated sudo; provision a user password with `--user-password`. The standard firmware upload/status/log/recover commands use the restricted passwordless helper.
+OS 0.4.0 uses `beitlab` and SSH keys. The one-time Linux tool installer uses interactive password-authenticated sudo; provision a user password with `--user-password`. Mailbox commands run directly as `beitlab` on images with the mailbox udev rule. The standard firmware upload/status/log/recover commands use the restricted passwordless helper.
+
+For an already flashed image that still has root-only mailbox access, run
+this once on the board (administrator password required):
+
+```sh
+mkdir -p "$HOME/.cache/beitlab-mailbox"
+printf '%s\n' 'SUBSYSTEM=="misc", KERNEL=="cvi-rtos-cmdqu", OWNER="root", GROUP="beitlab", MODE="0660"' > "$HOME/.cache/beitlab-mailbox/70-beitlab-mailbox.rules"
+sudo install -D -o root -g root -m 0644 "$HOME/.cache/beitlab-mailbox/70-beitlab-mailbox.rules" /etc/udev/rules.d/70-beitlab-mailbox.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger --action=change /sys/class/misc/cvi-rtos-cmdqu
+sudo udevadm settle
+bl_send 0x41 1
+```
+
+This grants the board operator access to all vendor mailbox ioctls and the
+hardware controlled by the running C906 program. Device ownership remains
+root, and other Linux users receive no mailbox access. No reboot or new
+SSH login is needed because `beitlab` already belongs to its own group.

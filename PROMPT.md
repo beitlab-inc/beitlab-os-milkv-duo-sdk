@@ -4,8 +4,7 @@ The 2026-11-20 product update adds Wi-Fi setup and rebrands the OS. The
 requirements below include that update. Firmware/agent paths and protocol
 names containing `playground` stay compatible with existing programs.
 
-You are implementing the repository that contains this file:
-`/home/beitlabgpu/beitlab/duo-s-playground`.
+You are implementing the repository that contains this file.
 
 Build a flashable Linux image for the Milk-V Duo S (SG2000) and the
 PlatformIO projects that load C906 programs onto a board running that image.

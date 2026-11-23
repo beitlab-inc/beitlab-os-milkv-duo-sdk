@@ -114,7 +114,11 @@ firmware answers ping too, so `host_ping` also works after
 Both tools do the same five steps; `examples/platformio/mailbox_ping/host_ping.c`
 is the shortest to read.
 
-1. `open("/dev/cvi-rtos-cmdqu", O_RDWR)`. Only root can open it.
+1. `open("/dev/cvi-rtos-cmdqu", O_RDWR)`. The image udev rule grants
+   root and the `beitlab` group access (owner/group `root:beitlab`, mode
+   `0660`), so the board operator can run mailbox tools without sudo.
+   See the [mailbox example](../examples/platformio/beitlabduino_mailbox/README.md)
+   for the one-time update on older images.
 2. Fill a `cmdqu_t`: `ip_id` 6, your `cmd_id`, `block` 1,
    `resv.mstime` = timeout in ms (not 257), `param_ptr` = value.
 3. `ioctl(fd, RTOS_CMDQU_SEND_WAIT, &cmd)`.

@@ -153,12 +153,14 @@ else
                  "$REPO"/firmware/include/*.h | sha256sum | cut -c1-12)"
 fi
 
-# ---- agent and host_ping (aarch64, static, SDK host-tools gcc) ----
+# ---- Linux tools (aarch64, static, SDK host-tools gcc) ----
 make -C "$REPO/agent" B="$BUILD/agent" clean >/dev/null
 make -C "$REPO/agent" B="$BUILD/agent" CROSS_COMPILE="${AARCH64_CC%gcc}" MEMMAP_H="$MEMMAP_H"
 make -C "$REPO/agent" B="$BUILD/agent" test MEMMAP_H="$MEMMAP_H"   # host build of the same sources
 "$AARCH64_CC" -O2 -Wall -static -o "$FW_BUILD/host_ping" \
   "$REPO/examples/platformio/mailbox_ping/host_ping.c"
+"$AARCH64_CC" -O2 -Wall -Wextra -static -o "$FW_BUILD/bl_send" \
+  "$REPO/examples/platformio/beitlabduino_mailbox/linux/bl_send.c"
 
 # ---- overlay ----
 OV="$SDK/device/$TARGET/overlay"
@@ -169,6 +171,7 @@ install -m 0644 "$REPO/image/users.txt" "$SDK/device/$TARGET/users.txt"
 install -m 0644 "$REPO/image/busybox-user.config" "$SDK/device/$TARGET/busybox-user.config"
 install -D -m 0755 "$BUILD/agent/rtos-agent" "$OV/usr/bin/rtos-agent"
 install -D -m 0755 "$FW_BUILD/host_ping" "$OV/usr/bin/host_ping"
+install -D -m 0755 "$FW_BUILD/bl_send" "$OV/usr/bin/bl_send"
 install -D -m 0644 "$FW_BUILD/playground-starter.elf" "$OV/usr/lib/firmware/playground.elf"
 install -D -m 0644 "$FW_BUILD/playground-starter.elf" "$OV/usr/lib/firmware/playground-starter.elf"
 
@@ -249,7 +252,7 @@ tar -tJf "$TARBALL" | sed 's#^\./##' > "$LIST"
 for f in mnt/system/ko/cvitek_remoteproc.ko mnt/system/ko/cv181x_rtos_cmdqu.ko \
          mnt/system/ko/cv181x_fast_image.ko usr/bin/rtos-agent usr/bin/host_ping \
          usr/lib/firmware/playground.elf usr/lib/firmware/playground-starter.elf \
-         etc/duo-playground-release usr/lib/systemd/system/rtos-agent.service \
+         usr/bin/bl_send etc/duo-playground-release usr/lib/systemd/system/rtos-agent.service \
          etc/systemd/system/multi-user.target.wants/rtos-agent.service \
          etc/systemd/system/multi-user.target.wants/sshd.service \
          etc/systemd/system/multi-user.target.wants/avahi-daemon.service \

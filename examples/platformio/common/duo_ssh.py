@@ -148,8 +148,6 @@ def main(argv):
         args = argv[1:]
         if args[0] == "host_ping" and USER != "root":
             return s.run(agent_command("ping", *args[1:]))
-        if args[0] == "bl_send" and USER != "root":
-            return s.admin(shlex.join(["sudo", "--", "/usr/bin/bl_send", *args[1:]]))
         return s.run(shlex.join(args))
     finally:
         s.close()

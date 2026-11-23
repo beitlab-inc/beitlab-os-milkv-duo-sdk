@@ -10,8 +10,7 @@
 # bl_send is linux/bl_send.c; install it once with: python3 linux/install.py
 set -eu
 if [ -e /dev/cvi-rtos-cmdqu ]; then
-  if [ "$(id -u)" = 0 ]; then exec bl_send "$@"; fi
-  exec sudo -- /usr/bin/bl_send "$@"
+  exec bl_send "$@"
 fi
 HERE="$(cd "$(dirname "$0")" && pwd)"
 exec python3 "$HERE/../common/duo_ssh.py" bl_send "$@"
