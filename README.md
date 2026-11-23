@@ -30,6 +30,7 @@ The robot control firmware (`Balanced_robot`) and the carrier board design (`Rob
 | SD image | **built**: `beitlab-robotics-milkv-duo-os-0.4.1-duos-arm64-sd.img` (local release output); Wi-Fi, hostname and SSH public-key configuration before flashing; all post-build checks pass |
 | Wi-Fi 0.2.0 verification | automated provisioning, FAT image, boot-import and driver-loader checks pass; fresh-card association/DHCP/reconnect pending (no board connected on 2026-11-20) |
 | First-boot customization 0.4.0 | combined Wi-Fi/hostname/key tests pass on real FAT images and isolated BusyBox imports; fresh-card SSH/mDNS verification pending |
+| Studio link 0.5.0 | source written: `beitlab-link`, `import-studio`, board-status decoder, Python 3 (patch 0010), two image variants (`make-variant.py`), imager board choice, Studio address, claim code; host tests pass and the link runs against the Studio's mock board. **Image not built yet; not verified on hardware.** The Robotics Board inspector firmware is not written yet |
 | Acceptance tests (0.1.0) | on a Duo S, 2026-11-19: tests 2-8 passed, with uploads and recover leaving Linux running (same `boot_id`); test 1 passed over Wi-Fi, but the Ethernet link is not recorded |
 
 ## Layout

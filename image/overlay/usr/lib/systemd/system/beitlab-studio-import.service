@@ -1,0 +1,13 @@
+[Unit]
+Description=Import the Studio address and device secret from the boot volume
+RequiresMountsFor=/boot
+Before=beitlab-link.service
+ConditionPathExists=|/boot/playground/studio.conf
+ConditionPathExists=|/boot/playground/device-secret
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/playground/import-studio
+
+[Install]
+WantedBy=multi-user.target

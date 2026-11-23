@@ -6,6 +6,7 @@ import getpass
 import os
 from pathlib import Path
 import runpy
+import secrets
 import shutil
 import signal
 import subprocess
@@ -136,7 +137,20 @@ class UI:
                 self.finish_line()
 
 
-def image_source(args, ui, temporary):
+def choose_board(args, ui):
+    """PROMPT.md 0.5.0: the board type is fixed by the image, so ask first."""
+    if getattr(args, "board", None):
+        return sources.VARIANTS[args.board]
+    ui.say("Which board is this card for?", "🤖")  # part of step 1: it picks the image
+    ui.say("  1  Milk-V Duo S alone            2  Beitlab Robotics Board (also Balance Robot v1)")
+    while True:
+        answer = ui.ask("Board", "1")
+        if answer in ("1", "2"):
+            return "duos_standalone" if answer == "1" else "robotics_board_rev011"
+        ui.say("Choose 1 or 2.")
+
+
+def image_source(args, ui, temporary, board=None):
     ui.step(1, "Choose your OS image", "📦")
     if args.image:
         image = args.image.expanduser().resolve(strict=True)
@@ -148,10 +162,12 @@ def image_source(args, ui, temporary):
             if args.github_auth:
                 ui.say("Using your GitHub CLI login for this download.")
             image, expected = sources.github_image(repository, args.release, args.cache_dir, ui.progress,
-                                                   authenticated=args.github_auth)
+                                                   authenticated=args.github_auth, variant=board)
         else:
             work = Path(os.environ.get("BEITLAB_WORK_DIR", str(Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "beitlab-duo-os")))
-            local = sorted((work / "releases").glob("*/beitlab-robotics-milkv-duo-os-*-duos-arm64-sd.img*"),
+            local = sorted((p for p in (work / "releases").glob("*/beitlab-robotics-milkv-duo-os-*-arm64-sd.img*")
+                            if sources.ASSET.fullmatch(p.name)
+                            and (board is None or sources.image_variant(p.name) == board)),
                            key=lambda p: p.stat().st_mtime, reverse=True)
             default = str(local[0]) if local else ""
             image = Path(ui.ask("Local image path (.img / .img.xz / .img.gz)", default)).expanduser().resolve(strict=True)
@@ -170,7 +186,7 @@ def image_source(args, ui, temporary):
 def capabilities(image, config):
     offset = config["boot_offset"](image)
     found = set()
-    for name in ("wifi-supported", "setup-supported", "user-supported"):
+    for name in ("wifi-supported", "setup-supported", "user-supported", "studio-supported"):
         result = subprocess.run(["mdir", "-i", f"{image}@@{offset}", f"::/playground/{name}"],
                                 capture_output=True)
         if result.returncode == 0:
@@ -204,7 +220,10 @@ def settings(ui, config, features):
     hostname = None
     if "setup-supported" in features:
         while True:
-            hostname = ui.ask("Hostname (without .local)", "beitlab-milkv-duo")
+            # Many boards share a Studio: suggest a unique name (the claim code still tells them apart).
+            hostname = ui.ask("Hostname (without .local)",
+                              f"robot-{secrets.randbelow(90) + 10:02d}" if "studio-supported" in features
+                              else "beitlab-milkv-duo")
             try:
                 hostname = config["hostname_config"](hostname).strip()
                 break
@@ -242,6 +261,24 @@ def settings(ui, config, features):
     else:
         ui.say("This image uses its existing login settings. Regular-user key/password setup needs OS 0.4.0.")
     return wifi, hostname, keys, user, ssid, account
+
+
+def studio_settings(ui, config, features, hostname):
+    """The Studio link (PROMPT.md 0.5.0): address, device secret and the board card's claim code."""
+    if "studio-supported" not in features:
+        ui.say("This image cannot link to the Studio; that needs OS 0.5.0.")
+        return None, None, None
+    default = config["default_studio_url"](ROOT) or ""
+    while True:
+        answer = ui.ask("Studio address (Enter for the default, or none)", default)
+        if answer.lower() in ("", "none", "no"):
+            ui.say("No Studio link: the board works over SSH and PlatformIO only.")
+            return None, None, None
+        try:
+            files, code = config["studio_settings"](answer)
+            return files, code, config["studio_url"](answer)
+        except ValueError as error:
+            ui.say(error, "⚠️")
 
 
 def choose_drive(ui, paths, size):
@@ -290,18 +327,35 @@ def execute(args, ui):
     config = runpy.run_path(str(ROOT / "scripts/configure-wifi.py"))
     with tempfile.TemporaryDirectory(prefix="beitlab-imager-") as folder:
         temporary = Path(folder)
-        image, original = image_source(args, ui, temporary)
+        # With --image the image decides the board (its playground/board marker); otherwise ask, to
+        # pick the right image.
+        board = sources.VARIANTS[args.board] if getattr(args, "board", None) else None
+        if not args.flash_only and not args.image and board is None:
+            board = choose_board(args, ui)
+        image, original = image_source(args, ui, temporary, board)
+        studio, code, url = None, None, None
         if args.flash_only:
             config["boot_offset"](image)  # Validate the Duo S image without mtools or mounting.
             ui.step(2, "Use saved board settings", "⚙️")
             ui.say("Using the Wi-Fi and account settings already saved in this image.")
         else:
             features = capabilities(image, config)
+            if "studio-supported" in features:
+                found = config["image_board"](image, config["boot_offset"](image))
+                if board is None and found:
+                    board = found
+                    ui.say(f"This image is for: {config['BOARD_LABEL'][found]}")
+                elif found != board:
+                    raise ValueError(f"this is the {config['BOARD_LABEL'].get(found, 'unknown')} image, not the "
+                                     f"{config['BOARD_LABEL'][board]} image; choose the image for your board")
             wifi, hostname, keys, user, ssid, account = settings(ui, config, features)
+            if hostname is not None:
+                studio, code, url = studio_settings(ui, config, features, hostname)
             target = args.output.expanduser().resolve() if args.output else temporary / "personal.img"
             if wifi is not None or hostname is not None or keys is not None or user is not None:
                 ui.say("Preparing your first-boot settings…", "🛠️")
-                config["configure_image"](image, target, wifi, hostname, keys, user)
+                config["configure_image"](image, target, wifi, hostname, keys, user, studio,
+                                          board if "studio-supported" in features else None)
                 image = target
             elif args.output:
                 with image.open("rb") as source, target.open("xb") as output:
@@ -312,6 +366,8 @@ def execute(args, ui):
                 image = target
             if args.output:
                 ui.say(f"Personal image saved: {image}")
+            if studio:
+                print_card(ui, hostname, board, code, url, config)
             if args.prepare_only or args.dry_run:
                 ui.say("Preparation complete. No disk was opened for writing.", "✅")
                 return
@@ -340,6 +396,14 @@ def execute(args, ui):
         else:
             ui.say(f"After boot: ssh {account}@{hostname or 'beitlab-milkv-duo'}.local", "✨")
         ui.say("On the Beitlab carrier, power the carrier and leave USB-C disconnected.")
+        if studio:
+            print_card(ui, hostname, board, code, url, config)
+
+
+def print_card(ui, hostname, board, code, url, config):
+    ui.say("Board card: write it down or print it. Students need it to add the board.", "🪪")
+    for line in config["board_card"](hostname, board, code, url).splitlines():
+        ui.say("  " + line)
 
 
 def main():
@@ -349,6 +413,7 @@ def main():
     parser.add_argument("--github-repo", help="release repository: OWNER/REPO")
     parser.add_argument("--github-auth", action="store_true", help="use your GitHub CLI login for private/draft release downloads")
     parser.add_argument("--release", default="latest", help="GitHub release tag (default: latest)")
+    parser.add_argument("--board", choices=sorted(sources.VARIANTS), help="skip the board question")
     parser.add_argument("--cache-dir", type=Path, default=Path.home() / ".cache/beitlab-imager")
     parser.add_argument("--output", type=Path, help="keep a personal image instead of only a temporary copy")
     parser.add_argument("--prepare-only", action="store_true", help="save the configured image without flashing (requires --output)")

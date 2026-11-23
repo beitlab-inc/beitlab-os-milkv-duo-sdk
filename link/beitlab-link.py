@@ -10,6 +10,7 @@ helper and `bl_send`, so this program needs no privilege of its own. Standard li
   beitlab-link            run (beitlab-link.service)
   beitlab-link --card     print the board card: hostname, board type, claim code
   beitlab-link --motd     print one status line for the login message
+  beitlab-link --claim-code  print the claim code (import-studio writes it for J22 and login)
 """
 
 from __future__ import annotations
@@ -687,6 +688,13 @@ def main(argv: list[str]) -> int:
         return 0
     if argv[1:] == ["--motd"]:
         print(motd(cfg))
+        return 0
+    if argv[1:] == ["--claim-code"]:
+        secret = cfg.secret()
+        if not SHA_RE.match(secret):
+            print("beitlab-link: no device secret", file=sys.stderr)
+            return 1
+        print(claim_code(secret))
         return 0
     if argv[1:] == ["--version"]:
         print(VERSION)

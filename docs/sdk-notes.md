@@ -1350,3 +1350,38 @@ Image size: 941621760 bytes. Image SHA256:
 `427f7c6fafd3aaf7fcc669b8798e0324536c81bfc90c72a8ecf0109b9d835d45`.
 Compressed image size: 49098864 bytes. Neither an SD card nor the running
 board was changed, and no GitHub release was published.
+
+### OS 0.5.0 Studio link: source changes, 2026-11-23
+
+PROMPT.md "Studio link and hardware identity (0.5.0)", approved by the owner on 2026-11-23,
+including Python 3 on the board (standard library only, no pip).
+
+- `link/beitlab-link.py` (installed as `/usr/bin/beitlab-link`), `beitlab-link.service`
+  (`User=beitlab`, `LoadCredential=device-secret:`), `import-studio` with
+  `beitlab-studio-import.service`, `beitlab-board-status` with its service (Robotics Board image
+  only, through `ExecCondition`), and `/etc/profile.d/beitlab-studio.sh`.
+- Inspector mailbox ids 0x10/0x11 (0x12-0x17 reserved) and the report fields in
+  `firmware/include/playground_cmd.h` and `docs/mailbox.md`.
+- `image/patches/0010-studio-python3-and-boot-markers.patch`: `BR2_PACKAGE_PYTHON3`, `_PY_PYC`,
+  `_SSL`, and the `studio-supported` and `board` boot-volume files in `genimage.cfg`. Checked
+  with `git apply` against the pinned `buildroot/configs/milkv-duos-glibc-arm64-sd_defconfig` and
+  `device/milkv-duos-glibc-arm64-sd/genimage.cfg` after patches 0006, 0008 and 0009.
+- Two images from one build. The SDK's `build.sh` runs `clean_all` on every call (read at the
+  pinned commit), so it runs once, for the standalone image, and `scripts/make-variant.py derive`
+  makes the Robotics Board image from the finished one: it rewrites only the variant files in the
+  ext4 root partition with debugfs and the FAT `playground/board` with mtools, then runs
+  `e2fsck -fn`. Found while testing: debugfs `mkdir` on an existing directory leaves an
+  unconnected inode, so only missing directories are created.
+- `scripts/check-rootfs-studio.py` runs on each variant's rootfs tarball, next to the existing
+  checks.
+- Imager and `configure-image.py`: board question / `--board`, `--studio-url` / `--no-studio`,
+  device secret, claim code (same derivation and test vectors as the Studio's device-hub),
+  board card, `studio-supported` marker check; GitHub assets are chosen by variant.
+
+Tests: `python3 -m pytest -q scripts/tests`: 138 passed (host Ubuntu 24.04, BusyBox, mtools,
+e2fsprogs 1.47.0). The Studio's `tools/mock_board` runs this link against fake `rtos-control` and
+`bl_send`; the Studio's end-to-end test claims it by hostname and claim code.
+
+**Not built, not verified on hardware:** the 0.5.0 image has not been built (the full SDK cache
+was removed earlier; a new full checkout is needed), the Robotics Board inspector firmware is not
+written yet (build with `--standalone-only` until then), and the link has not run on a Duo S.

@@ -1,0 +1,54 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Import the Studio settings from the boot volume (PROMPT.md 0.5.0):
+#   playground/studio.conf   -> /etc/beitlab/studio/url            (0644)
+#   playground/device-secret -> /etc/beitlab/studio/device-secret  (0600 root)
+# and show the claim code on J22 and at login. Both boot files are consumed.
+# Data only: never source or execute files from the FAT boot partition.
+set -eu
+BOOT=/boot/playground
+DIR=/etc/beitlab/studio
+ISSUE=/etc/issue
+LINK=/usr/bin/beitlab-link
+umask 022
+mkdir -p "$DIR"
+chmod 755 "$DIR"
+TEMP=$(mktemp "$DIR/.import.XXXXXX")
+trap 'rm -f "$TEMP"' EXIT
+
+if [ -f "$BOOT/studio.conf" ]; then
+    URL=$(tr -d '\r' < "$BOOT/studio.conf" | head -n 1)
+    if [ "${#URL}" -le 200 ] && printf '%s\n' "$URL" |
+        grep -Eqx 'https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?'; then
+        printf '%s\n' "$URL" > "$TEMP"
+        chmod 644 "$TEMP"
+        chown 0:0 "$TEMP"
+        mv -f "$TEMP" "$DIR/url"
+        echo "beitlab: Studio address set to $URL"
+    else
+        echo 'beitlab: invalid Studio address on the boot volume; ignored' >&2
+    fi
+    rm -f "$BOOT/studio.conf"
+fi
+
+if [ -f "$BOOT/device-secret" ]; then
+    KEY=$(tr -d '\r\n' < "$BOOT/device-secret")
+    if printf '%s\n' "$KEY" | grep -Eqx '[0-9a-f]{64}'; then
+        TEMP=$(mktemp "$DIR/.import.XXXXXX")
+        chmod 600 "$TEMP"
+        chown 0:0 "$TEMP"
+        printf '%s\n' "$KEY" > "$TEMP"
+        mv -f "$TEMP" "$DIR/device-secret"
+        CODE=$(BEITLAB_LINK_SECRET_FILE="$DIR/device-secret" "$LINK" --claim-code)
+        printf '%s\n' "$CODE" > "$DIR/claim-code"
+        chmod 644 "$DIR/claim-code"
+        # J22 banner: one line, replaced on every import.
+        sed -i '/^Studio claim code: /d' "$ISSUE"
+        printf 'Studio claim code: %s\n' "$CODE" >> "$ISSUE"
+        echo "beitlab: device secret imported; Studio claim code $CODE"
+    else
+        echo 'beitlab: invalid device secret on the boot volume; ignored' >&2
+    fi
+    rm -f "$BOOT/device-secret"
+fi
+sync

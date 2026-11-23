@@ -16,7 +16,16 @@ import urllib.error
 
 CHUNK = 4 * 1024 * 1024
 MAX_IMAGE = 16 * 1024**3
-ASSET = re.compile(r"beitlab-robotics-milkv-duo-os-[A-Za-z0-9._-]+-duos-arm64-sd\.img(?:\.xz|\.gz)?$")
+# Up to 0.4.x one image ("-duos-"); from 0.5.0 two variants (PROMPT.md "Two images from one build").
+ASSET = re.compile(r"beitlab-robotics-milkv-duo-os-[A-Za-z0-9._-]+?-(duos|duos-standalone|robotics-board)"
+                   r"-arm64-sd\.img(?:\.xz|\.gz)?$")
+VARIANTS = {"duos-standalone": "duos_standalone", "robotics-board": "robotics_board_rev011"}
+
+
+def image_variant(name):
+    """duos_standalone / robotics_board_rev011 for a 0.5.0+ image name, None for older images."""
+    match = ASSET.fullmatch(name)
+    return VARIANTS.get(match.group(1)) if match else None
 
 
 def digest_file(path, progress=lambda *args: None):
@@ -141,14 +150,15 @@ def authenticated_asset(repository, asset, limit):
                                 "Accept: application/octet-stream"], limit)
 
 
-def release_asset(data):
-    assets = [a for a in data.get("assets", []) if ASSET.fullmatch(a.get("name", "")) and a.get("state", "uploaded") == "uploaded"]
+def release_asset(data, variant=None):
+    assets = [a for a in data.get("assets", []) if ASSET.fullmatch(a.get("name", "")) and a.get("state", "uploaded") == "uploaded"
+              and (variant is None or image_variant(a["name"]) == variant)]
     if not assets:
         raise ValueError("the GitHub release has no compatible beitlab Duo S image asset")
     return min(assets, key=lambda a: (0 if a["name"].endswith(".xz") else 1 if a["name"].endswith(".gz") else 2, a["name"]))
 
 
-def github_image(repository, tag, cache, progress, authenticated=False):
+def github_image(repository, tag, cache, progress, authenticated=False, variant=None):
     endpoint = "latest" if tag == "latest" else "tags/" + urllib.parse.quote(tag, safe="")
     if authenticated:
         release = authenticated_release(repository, tag)
@@ -159,7 +169,7 @@ def github_image(repository, tag, cache, progress, authenticated=False):
             if error.code in (401, 403, 404):
                 raise ValueError("GitHub release is unavailable without authentication. For a private repository or draft, use --github-auth and select its tag with --release after gh auth login --hostname github.com.") from error
             raise
-    asset = release_asset(release)
+    asset = release_asset(release, variant)
     value = asset.get("digest") or ""
     if value.startswith("sha256:"):
         expected = valid_digest(value[7:])

@@ -3,7 +3,7 @@
 #
 # Write beitlab Robotics MilkV duo OS to a microSD card (Linux).
 #
-#   sudo scripts/flash.sh /dev/sdX [out/beitlab-robotics-milkv-duo-os-<version>-duos-arm64-sd.img]
+#   sudo scripts/flash.sh /dev/sdX [out/beitlab-robotics-milkv-duo-os-<version>-duos-standalone-arm64-sd.img]
 #
 # Checks the image against out/SHA256SUMS, shows the target with lsblk,
 # refuses disks that hold mounted system filesystems, and asks you to type
@@ -16,7 +16,7 @@ die() { echo "flash: $*" >&2; exit 1; }
 DEV="${1:-}"
 WORK="${BEITLAB_WORK_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/beitlab-duo-os}"
 RELEASE="${BEITLAB_OUTPUT_DIR:-$WORK/releases/$(cat "$REPO/VERSION")}"
-IMG="${2:-$RELEASE/beitlab-robotics-milkv-duo-os-$(cat "$REPO/VERSION")-duos-arm64-sd.img}"
+IMG="${2:-$RELEASE/beitlab-robotics-milkv-duo-os-$(cat "$REPO/VERSION")-duos-standalone-arm64-sd.img}"
 [ -n "$DEV" ] || die "usage: sudo $0 /dev/sdX [image]"
 [ -b "$DEV" ] || die "$DEV is not a block device"
 [ -f "$IMG" ] || die "$IMG not found (run scripts/build-image.sh or download the release)"
