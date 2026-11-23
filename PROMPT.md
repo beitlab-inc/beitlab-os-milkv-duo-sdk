@@ -636,11 +636,21 @@ publishes both images, and `SHA256SUMS` covers both. Every existing
 post-build check runs on each image, plus a check that the variant files
 match the table. Balance Robot v1 uses the Robotics Board image.
 
+### Python 3 runtime
+
+0.5.0 adds Buildroot's `python3` (`BR2_PACKAGE_PYTHON3=y`, compiled
+`.pyc`, no pip, no third-party packages). The "no Python on the device"
+rule in "Agent" still holds for `rtos-agent`, which stays a static C
+program. Python is there for the Studio: students' Linux programs
+(`linux.run`) and the link. Students cannot install packages. The post-build
+checks confirm `/usr/bin/python3` runs, that pip is absent, and that the
+root partition still has room.
+
 ### beitlab-link
 
 `image/overlay/usr/bin/beitlab-link` (source in `link/`) is a Python 3
-program using only the standard library and the image's `requests` and CA
-certificates. `beitlab-link.service` is enabled and starts after
+program using only the standard library (`urllib`, `ssl`, `json`) and the
+image's CA certificates. `beitlab-link.service` is enabled and starts after
 `network-online.target` and `time-sync.target`.
 
 - It runs as the regular user `beitlab`. It acts on the C906 only through
