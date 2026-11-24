@@ -41,6 +41,9 @@ def check(path, hardware):
         assert libs, "python3 has no ssl module (the link needs HTTPS)"
         assert [n for n in members if re.fullmatch(r"usr/lib/python3\.\d+/lib-dynload/_ssl\..*\.so", n)], \
             "python3 has no _ssl extension"
+        for module in ("fcntl", "termios", "select", "binascii", "_struct"):
+            assert any(re.fullmatch(rf"usr/lib/python3\.\d+/lib-dynload/{module}\..*\.so", n)
+                       for n in members), f"python3 has no {module} extension (Studio PTY terminal)"
         pips = [n for n in members if re.fullmatch(r"usr/bin/pip3?(\.\d+)?", n)
                 or re.fullmatch(r"usr/lib/python3\.\d+/site-packages/pip/__init__\.pyc?", n)]
         assert not pips, f"pip must not be on the board: {pips}"
@@ -70,7 +73,7 @@ def check(path, hardware):
         for secret in ("etc/beitlab/studio/device-secret", "etc/beitlab/studio/url", "boot/playground/device-secret",
                        "boot/playground/studio.conf"):
             assert secret not in members, f"release rootfs contains /{secret}"
-    print(f"ok: {hardware}: python3 (ssl, no pip), beitlab-link enabled, board identity, starter, no Studio secrets")
+    print(f"ok: {hardware}: python3 (ssl, PTY extensions, no pip), beitlab-link enabled, board identity, starter, no Studio secrets")
 
 
 if __name__ == "__main__":

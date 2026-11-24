@@ -1414,3 +1414,27 @@ settings). The image has Python 3.12.9 and systemd 256.7 (`LoadCredential=` need
 
 **Not verified on hardware:** the image has not been flashed or booted. The Robotics Board image
 is not built (no inspector firmware yet).
+
+## Human Studio terminal — 2026-11-24
+
+Owner authorized the separate human PTY channel in PROMPT.md. Link version `0.5.0-terminal.1`
+advertises `terminal_v1` and relays fixed `/bin/sh -i` sessions outbound through device-hub,
+with Ctrl+C/resize, byte-preserving base64, retry acknowledgement, bounded buffers and teardown.
+No command job or AI terminal tool was added. The shell has the ordinary `beitlab` user's existing
+permissions and is not a sandbox; same-user credential exposure is not strengthened.
+
+`python3 -m unittest discover -s scripts/tests -v`: **143 passed**, including five host PTY/relay
+checks. Real host PTYs cover controlling tty, UTF-8, resize, Ctrl+C, process cleanup, retries and
+network watchdog; existing board-link/allowlist tests pass. Rootfs checker now requires the PTY
+extensions, and the cached arm64 rootfs passed (fcntl/termios/select/binascii/struct present).
+Studio final browser suite: **22 passed, 3 skipped**, using the real link in mock containers.
+The explicit robot-47 terminal check skipped because its old link lacks the capability; see
+`../robotics-studio/docs/progress/M2-terminal.md` for the full results and screenshots.
+
+A standalone development preview was repacked from the local unprovisioned 0.5.0 image, changing
+only `/usr/bin/beitlab-link`, with readback/mode checks and clean `e2fsck -fn`. It is in
+`~/.cache/beitlab-duo-os/releases/0.5.0-terminal-preview.1/` with manifest/checksum/repack recipe.
+SHA-256: `c0101373d670a2c210859f6ac3b43e4639987210fd8fd69c775d0ae82de96559`.
+No published release or current card was changed. `robot-47` is online on the old 0.5.0 link and
+needs the updated link/image. New image boot, terminal and watchdog on the physical board are
+**not verified on hardware**. Cluster and Thor were not accessed.

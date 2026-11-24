@@ -250,6 +250,8 @@ class RootfsCheck(unittest.TestCase):
         for unit in CHECK.UNITS:
             files.setdefault(f"usr/lib/systemd/system/{unit}.service", b"[Unit]\n")
             files[CHECK.WANTS + f"{unit}.service"] = b""
+        for module in ("fcntl", "termios", "select", "binascii", "_struct"):
+            files[f"usr/lib/python3.12/lib-dynload/{module}.cpython-312-aarch64-linux-gnu.so"] = b"ELF"
         files.update(extra or {})
         with tarfile.open(path, "w:xz") as tar:
             for rel, data in files.items():
@@ -273,6 +275,7 @@ class RootfsCheck(unittest.TestCase):
     def test_failures(self):
         cases = [
             ("pip", {"extra": {"usr/bin/pip3": b"#!"}}, "pip"),
+            ("no termios", {"drop": ("usr/lib/python3.12/lib-dynload/termios.cpython-312-aarch64-linux-gnu.so",)}, "termios"),
             ("no ssl", {"drop": ("usr/lib/python3.12/ssl.pyc",)}, "ssl"),
             ("secret", {"extra": {"etc/beitlab/studio/device-secret": b"x"}}, "device-secret"),
             ("not enabled", {"drop": (CHECK.WANTS + "beitlab-link.service",)}, "beitlab-link"),

@@ -193,6 +193,7 @@ class LinkEndToEnd(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
         self.hub = FakeHub()
+        self.addCleanup(self.hub.server.server_close)
         self.addCleanup(self.hub.server.shutdown)
 
         def tool(name, text):

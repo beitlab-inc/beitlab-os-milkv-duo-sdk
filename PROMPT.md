@@ -655,7 +655,7 @@ image's CA certificates. `beitlab-link.service` is enabled and starts after
 
 - It runs as the regular user `beitlab`. It acts on the C906 only through
   `sudo -n /usr/libexec/playground/rtos-control` and `/usr/bin/bl_send`,
-  so it gains no new privilege. It never runs a shell, `eval`s nothing, and
+  so it gains no new privilege. Jobs never run a shell, `eval` nothing, and
   passes no server text to a command line except where the table below
   says so, after validation.
 - It is idle (exits 0 and stays inactive) when no Studio URL is set.
@@ -799,3 +799,22 @@ recorded register values. Hardware tests stay **pending** in
    servo driver and fault input with plausible values.
 3. Robotics Board image on a bare Duo S: "Carrier not found".
 4. Unplugging the network for a minute: the link reconnects by itself.
+
+### Human Studio terminal (owner authorized, 2026-11-24)
+
+The owner authorizes the browser Terminal in robotics-studio PLAN.md 5.7. This is a separate,
+human-operated PTY channel, not a new command job; keep the job allowlist unchanged and expose
+no terminal tool to the AI agent. Advertise `terminal_v1` in heartbeats. The link exchanges
+session state/input/resize/output outbound through `/v1/device/terminal`, using its device
+credential. Open only the fixed `/bin/sh -i` under the existing `beitlab` identity, in `~/studio`,
+with a minimal environment and no history. No server-selected command, path or environment.
+Use standard-library PTY/termios only, no pip, SSH relay or inbound port. Preserve bytes with
+base64, acknowledge input/output sequence numbers, and bound all buffers. Close the PTY on
+session close/expiry, shell exit, link shutdown or 25 seconds without a successful exchange;
+kill shell and foreground process groups and reap children. Hub sessions also expire after
+ten minutes, five minutes without keyboard input, or 25 seconds without browser presence.
+The ordinary user's existing filesystem and restricted sudo rights still apply: this shell
+is not a sandbox and shares a user identity with the link. Do not claim credential isolation.
+Existing flashed cards require an updated link/image; never use generic remote update commands
+to bypass the job allowlist. Test PTY behavior and cleanup on the host, record results in
+`docs/sdk-notes.md`, and call it **not verified on hardware** until a real updated board is tested.

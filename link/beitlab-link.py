@@ -15,18 +15,23 @@ helper and `bl_send`, so this program needs no privilege of its own. Standard li
 
 from __future__ import annotations
 
+import base64
+import fcntl
 import hashlib
 import json
 import logging
 import os
 import random
 import re
+import select
 import shlex
 import signal
 import socket
 import ssl
+import struct
 import subprocess
 import sys
+import termios
 import threading
 import time
 import urllib.error
@@ -34,7 +39,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.5.0"
+VERSION = "0.5.0-terminal.1"
 log = logging.getLogger("beitlab-link")
 
 HEARTBEAT_S = 10
@@ -363,6 +368,7 @@ class Link:
             "boot_id": self.cfg.read(Path("/proc/sys/kernel/random/boot_id"))[:64],
             "uptime_s": proc_uptime(),
             "link_version": VERSION,
+            "capabilities": ["terminal_v1"],
             "rtos": self.rtos_status(),
         }
         status = self.board_status()
@@ -565,7 +571,12 @@ class Link:
         while not self.stop.is_set() and not self.heartbeat():
             self.stop.wait(min(60.0, 5.0 * random.uniform(0.8, 1.2)))
         threading.Thread(target=self.heartbeat_loop, daemon=True, name="heartbeat").start()
+        terminal = threading.Thread(target=terminal_loop, args=(self.cfg, self.hub, self.stop),
+                                    daemon=True, name="human-terminal")
+        terminal.start()
         self.poll_loop()
+        self.stop.set()
+        terminal.join(timeout=10)
         with self.runs_lock:
             for proc in self.runs.values():
                 terminate(proc)
@@ -657,6 +668,174 @@ def stream_process(argv, seconds, out: Output, stop: threading.Event, *, cwd=Non
     return proc.wait()
 
 
+# ---- human-only PTY channel (not a job) -----------------------------------------------------------
+
+TERMINAL_LOST_S = 25
+TERMINAL_MAX_S = 600
+
+
+class PtyShell:
+    """A controlling PTY for the fixed board-user shell. Never inherits link credentials in env."""
+
+    def __init__(self, cfg, cols=80, rows=24):
+        self.master, slave = os.openpty()
+        self.proc = None
+        try:
+            self.resize(cols, rows)
+            cfg.studio_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            env = minimal_env()
+            env.update(TERM="xterm-256color", HISTFILE="/dev/null", ENV="/dev/null", PS1="beitlab$ ")
+            # A fresh interpreter sets the controlling tty before exec; no preexec_fn/fork
+            # callback in the multithreaded link process.
+            self.proc = subprocess.Popen(
+                [sys.executable, str(Path(__file__).resolve()), "--terminal-child"],
+                stdin=slave, stdout=slave, stderr=slave, cwd=cfg.studio_dir,
+                env=env, start_new_session=True, close_fds=True)
+            os.set_blocking(self.master, False)
+        except BaseException:
+            os.close(self.master)
+            raise
+        finally:
+            os.close(slave)
+
+    def resize(self, cols, rows):
+        if type(cols) is not int or type(rows) is not int or not 20 <= cols <= 300 or not 5 <= rows <= 120:
+            raise ValueError("invalid terminal size")
+        fcntl.ioctl(self.master, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+
+    def read(self):
+        try:
+            return os.read(self.master, 8192)
+        except (BlockingIOError, OSError):
+            return b""
+
+    def write(self, data, stop):
+        if len(data) > 4096:
+            raise ValueError("terminal input too large")
+        end = time.monotonic() + 5
+        while data and not stop.is_set():
+            try:
+                count = os.write(self.master, data)
+                data = data[count:]
+            except BlockingIOError:
+                if time.monotonic() >= end:
+                    raise ValueError("terminal input stalled")
+                select.select([], [self.master], [], 0.1)
+
+    def close(self):
+        if self.master < 0:
+            return
+        groups = {self.proc.pid} if self.proc else set()
+        try:
+            groups.add(os.tcgetpgrp(self.master))
+        except OSError:
+            pass
+        # Capture the foreground group before closing the tty: a shell may have handed it to
+        # sleep/top/etc. Kill both groups even if the shell exits before its foreground child.
+        for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGKILL):
+            for group in groups:
+                if group <= 1 or group == os.getpgrp():
+                    continue
+                try:
+                    os.killpg(group, sig)
+                except (ProcessLookupError, PermissionError):
+                    pass
+            if sig != signal.SIGKILL and self.proc:
+                try:
+                    self.proc.wait(timeout=0.2)
+                except subprocess.TimeoutExpired:
+                    pass
+        if self.proc:
+            self.proc.wait(timeout=3)
+        try:
+            os.close(self.master)
+        except OSError:
+            pass
+        self.master = -1
+
+
+def terminal_loop(cfg, hub, stop):
+    shell = None
+    session_id = None
+    input_ack = output_seq = 0
+    pending = b""
+    last_ok = time.monotonic()
+    started = last_ok
+    error = ""
+    try:
+        while not stop.is_set():
+            if shell and (time.monotonic() - last_ok >= TERMINAL_LOST_S or
+                          time.monotonic() - started >= TERMINAL_MAX_S):
+                shell.close()
+                shell = None
+                error = "Board terminal connection timed out"
+            if shell and not pending:
+                pending = shell.read()
+                if pending:
+                    output_seq += 1
+            # Once the shell exits, drain the PTY completely before sending the exit marker.
+            exited = bool(session_id and (error or (shell and shell.proc.poll() is not None and not pending)))
+            body = dict(session_id=session_id, input_ack=input_ack, output_seq=output_seq,
+                        data=base64.b64encode(pending).decode("ascii"), exited=exited,
+                        exit_code=shell.proc.returncode if shell else None, error=error)
+            try:
+                reply = hub.request("POST", "/v1/device/terminal", body, timeout=5)
+                last_ok = time.monotonic()
+                session = (reply or {}).get("session")
+                new_id = session.get("id") if session else None
+                if new_id != session_id:
+                    if shell:
+                        shell.close()
+                        shell = None
+                    session_id = new_id
+                    input_ack = output_seq = 0
+                    pending = b""
+                    error = ""
+                    if session_id:
+                        # Hub IDs are UUIDs; do not allow paths or commands in this channel.
+                        if not isinstance(session_id, str) or not re.fullmatch(r"[0-9a-f-]{36}", session_id):
+                            raise ValueError("invalid terminal session")
+                        try:
+                            shell = PtyShell(cfg, session["cols"], session["rows"])
+                            started = time.monotonic()
+                        except Exception:
+                            error = "Could not open the board PTY"
+                if session_id and not error:
+                    if reply.get("output_ack") == output_seq:
+                        pending = b""
+                    for event in reply.get("events", []):
+                        seq = event["seq"]
+                        if seq <= input_ack:
+                            continue
+                        if seq != input_ack + 1:
+                            raise ValueError("terminal input sequence gap")
+                        if event["kind"] == "resize":
+                            shell.resize(event["cols"], event["rows"])
+                        elif event["kind"] == "input":
+                            data = base64.b64decode(event["data"], validate=True)
+                            shell.write(data, stop)
+                        else:
+                            raise ValueError("invalid terminal event")
+                        input_ack = seq
+                stop.wait(0.08 if session_id else 1)
+            except HubError as exc:
+                # Auth rejection closes immediately. Network failure has a bounded watchdog.
+                if exc.status in (401, 403) and shell:
+                    shell.close()
+                    shell = None
+                    error = "Board authorization ended"
+                stop.wait(1 if session_id else 5)
+            except (ValueError, KeyError, TypeError, OSError):
+                if shell:
+                    shell.close()
+                    shell = None
+                error = "Board terminal protocol error"
+                stop.wait(1)
+    finally:
+        if shell:
+            shell.close()
+
+
 # ---- entry points ---------------------------------------------------------------------------------
 
 HARDWARE_LABEL = {"duos_standalone": "Milk-V Duo S (standalone image)",
@@ -682,6 +861,10 @@ def motd(cfg: Config) -> str:
 
 def main(argv: list[str]) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s", stream=sys.stderr)
+    if argv[1:] == ["--terminal-child"]:
+        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+        os.tcsetpgrp(0, os.getpgrp())
+        os.execve("/bin/sh", ["/bin/sh", "-i"], dict(os.environ))
     cfg = Config()
     if argv[1:] == ["--card"]:
         sys.stdout.write(card(cfg))
