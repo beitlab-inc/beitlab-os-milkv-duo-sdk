@@ -1351,6 +1351,26 @@ Image size: 941621760 bytes. Image SHA256:
 Compressed image size: 49098864 bytes. Neither an SD card nor the running
 board was changed, and no GitHub release was published.
 
+### Board-selected beitlabduino IMU, 2026-11-23
+
+`bl_imu_begin()` now selects the sensor from `pg_profile_i2c4_route()`:
+the carrier route starts the BMI323 exactly as before, the J3 route
+delegates to the existing `bl_bmi160_*` adapter, and any other profile is
+refused before bus access. `bl_imu_sensor()` names the active sensor and
+address. `examples/platformio/beitlabduino_imu` has two environments:
+`robotics_board` (default, `beitlab_robotics_rev011_imu`) and `milkv`
+(`duos_bare_bmi160_j3`). Listing `beitlabduino_imu` makes the builder add
+`carrier_imu`, `beitlabduino_bmi160` and `duos_i2c4`, so the previous
+`custom_libs` line still links. No driver, profile or Linux image changed.
+
+- `PYTHONDONTWRITEBYTECODE=1 pio run -e robotics_board -e milkv` in the
+  example: both ELFs built and passed rtosbuild checks; the previous
+  `custom_libs` line, `beitlabduino_bmi160_j3` and `robotics_imu` also built.
+- `python3 -m unittest discover -s scripts/tests -p 'test_robotics_imu.py'`
+  and `test_bmi160.py`: all pass under ASan/UBSan, including profile
+  refusal with no bus access, BMI160 delegation without BMI323 traffic,
+  and the unchanged BMI323 path. Physical readings remain pending.
+
 ### OS 0.5.0 Studio link: source changes, 2026-11-23
 
 PROMPT.md "Studio link and hardware identity (0.5.0)", approved by the owner on 2026-11-23,
@@ -1415,6 +1435,7 @@ settings). The image has Python 3.12.9 and systemd 256.7 (`LoadCredential=` need
 **Not verified on hardware:** the image has not been flashed or booted. The Robotics Board image
 is not built (no inspector firmware yet).
 
+
 ## Human Studio terminal — 2026-11-24
 
 Owner authorized the separate human PTY channel in PROMPT.md. Link version `0.5.0-terminal.1`
@@ -1438,3 +1459,154 @@ SHA-256: `c0101373d670a2c210859f6ac3b43e4639987210fd8fd69c775d0ae82de96559`.
 No published release or current card was changed. `robot-47` is online on the old 0.5.0 link and
 needs the updated link/image. New image boot, terminal and watchdog on the physical board are
 **not verified on hardware**. Cluster and Thor were not accessed.
+
+## BMI160 controller initialization timeout (2026-11-24)
+
+Studio's user reports persistent `BMI160 I2C4 init error=-2` on a standalone
+Duo S with BMI160, including after power-on. Studio's allowlisted `mcu.log`
+API confirms the repeated error on robot-72, OS 0.5.0. The source identifies
+this as controller-disable timeout, before sensor probing; the exact physical
+cause is still unknown. The pinned Linux clock driver marks I2C4 APB critical,
+so there is no evidence for changing global clocks or the OS device tree.
+
+The shared transport now attempts one bounded local abort when master
+activity prevents shutdown, setting ENABLE in a separate write before ABORT.
+It leaves policy checks first, changes no routes until shutdown succeeds,
+and performs no system clock/reset or GPIO bus recovery. The BMI160 wrapper
+reports saved enable/enable-status/status registers on failure. This follows
+the enable-before-abort requirement also used by the [upstream DesignWare
+driver](https://github.com/torvalds/linux/blob/master/drivers/i2c/busses/i2c-designware-common.c).
+
+Verification from robotics-studio (relative paths shown exactly):
+
+- New MMIO regression first failed for both permitted profiles at
+  `assert(imu_i2c4_init() == 0)` when a held master required ABORT.
+- `python3 -m unittest discover -s ../duo-s-playground/scripts/tests -p test_robotics_imu.py`:
+  **3 passed** after the fix (including four policy/route variants, stuck master,
+  unrecoverable abort, inactive shutdown timeout, no MMIO on denied profiles).
+- Same command with `test_bmi160.py`: **2 passed**, including browser-visible
+  register diagnostics and absence of sensor reads/writes on failed init.
+- Same command with `test_profiles.py`: **6 passed**; `test_board_status.py`:
+  **10 passed**.
+- Actual Studio `build_svc.compiler.compile_source` in the running local
+  build-svc container compiled `beitlabduino_imu` for standalone BMI160
+  (**340808 bytes**) and carrier BMI323 (**342200 bytes**), plus the explicit
+  `beitlabduino_bmi160_j3` example (**322544 bytes**). New diagnostic string
+  was present in both standalone ELFs. Temporary build outputs were removed.
+
+No automatic hardware upload was performed. In Studio the user must Build,
+then Upload & run to replace the existing ELF. Recovery and physical IMU
+readings remain **not verified on hardware**.
+
+### robot-72 hardware follow-up
+
+The user's next log was `en=0 state=1 status=27`; the initial ABORT-only
+recovery did **not** solve the hardware fault. The user explicitly authorized
+access/testing on robot-72.local. All board operations used Studio's JWT-authenticated
+service APIs (`mcu.load` / `mcu.log`); no inbound board connection or shell was used.
+A separate diagnostic project left existing user project files untouched.
+
+Read-only controller/pad/clock snapshot on the standalone 0.5.0 image:
+
+```text
+con=00000063 tar=00000069 en=00000000 state=00000001 status=00000027
+raw=00000110 abort=00000000 version=3131362a
+clk_en3=e03fffff clk_byp=00000000 clk_div_i2c=00000001
+mux J3=7,7 J4=3,3 gpioB=00210050 ddrB=00000000
+```
+
+Shared I2C and APB I2C4 clock gates were both enabled; J3 routing was correct
+and the stale carrier route was already disconnected. SCL was low, SDA high.
+Re-enable then ABORT still left status=27 after 20 ms (ABORT had self-cleared).
+One read-only `RESTART | READ | STOP` at the existing allowed target 69 released
+SCL (GPIOB=00310050), produced address NACK (abort=1), and let disable reach state=0.
+No clock/reset/GPIO outputs were changed. The controller-local recovery sequence
+is thus tested on this hardware; it does not establish a universal ABORT limitation
+for every SG2000 revision.
+
+The shared driver adds that single bounded fallback only for an active master
+with restart enabled, empty TX FIFO with space, and an unchanged plain seven-bit
+target granted by the profile. It never sends register data or rewrites the target.
+A recovery NACK is accepted as completion; actual shutdown is still required.
+The regression first failed for both carrier/J3 routes, then passed under ASan/UBSan,
+including ACK/NACK, denied/special targets, wrong mode, full FIFO and persistent faults.
+Focused sibling tests remain green (IMU 3, BMI160 2, profiles 6, inspector 10).
+Studio catalog/build tests: 10 passed, one existing deprecation warning.
+
+After the manual recovery, restoring the IMU example progressed beyond controller
+initialization and repeatedly reported `BMI160 not found at 0x68/0x69 ... abort=1`.
+A pointer-only identity transaction at 69 also received address NACK and shut down
+normally. This attempted reproduction did not recreate the earlier held-master fault.
+The user uses four power/I2C wires, which may be sufficient with onboard CS/SDO
+straps and pull-ups. Module identity/physical wiring still need inspection.
+Real acceleration/gyro readings remain **not verified on hardware**.
+
+Final follow-up checks:
+
+- Final source cross-builds through the real host `compile_project`: `milkv`
+  345440 bytes; `robotics_board` 346864 bytes. Temporary outputs removed.
+- Real identity-probe build `8e17846dabe246a5a5b8e4be8ee0a603`: at both 68 and
+  69, init=0, read=-3, chip=ff (unchanged sentinel), abort=1 (address NACK).
+- Restored normal `beitlabduino_imu` with the updated transport: Studio API build
+  `ed019a1eccf6469289c8ab81fd514e54` (343168 bytes), successful `mcu.load`;
+  logs repeatedly show `BMI160 not found at 0x68/0x69 ... abort=1`, with controller
+  initialization now passing. No diagnostic firmware is left running.
+- Studio's local build worker temporarily rejected builds because it retained
+  zombie build-user processes. Its spool queue was empty before restarting only
+  that local Compose worker; the two final API builds then succeeded. See
+  `../robotics-studio/docs/progress/M2-imu-timeout.md` for exact evidence.
+
+The recovery sequence is tested on the physical board, and the updated firmware
+is uploaded. The original held state was not reproduced after manual release,
+so the automatic fallback is tested against the host MMIO model; a second
+hardware reproduction and fresh power-on check remain pending. Physical IMU
+readings are **not verified on hardware**. Module/wiring photo requested.
+
+## I²C4 multi-byte read deadlock, BMI160 readings on robot-72 (2026-11-24)
+
+Board: robot-72, OS 0.5.0 standalone (reflashed from a personal copy of the
+0.5.0 image), GY-BMI160 module on J3 with CS tied to 3V3. Firmware uploaded
+with `PIO_DUO_HOST=robot-72.local pio run -e milkv -t upload`; logs read
+with `sudo -n /usr/libexec/playground/rtos-control log` over SSH.
+
+Sequence of observations:
+
+1. `robotics_board` (the default environment) on the bare Duo S:
+   `IMU init error=-1 ... abort=0`. That build drives the carrier's B1/B2,
+   which have no pull-ups without the carrier. The BMI323 adapter now
+   prints the transport code (`i2c=-2`) and a hint naming `-e milkv`.
+2. `milkv` before a full power cycle: `BMI160 not found ... abort=1`.
+3. After a full power cycle: chip ID `d1` found, but
+   `BMI160 init error=-1 i2c=-2 reg=40`. A new fault snapshot showed
+   `stage=5 byte=0 status=27 raw_intr=510 txflr=0 rxflr=0 en=1`: the
+   first byte of the 4-byte ACC_CONF read-back never arrived while the
+   master stayed active with both FIFOs empty. All writes had succeeded.
+
+Cause: `transfer()` queued one read command and waited for its byte before
+queuing the next. The DesignWare master completes a received byte only once
+the following command, or this command's STOP, decides ACK or NACK, so every
+read longer than one byte held SCL low until the budget expired. One-byte
+reads carry STOP and worked. The `status=27` held master recorded in the
+robot-72 follow-up above is the same state. Every BMI323 read is at least
+four bytes, so the carrier path was affected too.
+
+Fix: reads keep one command queued ahead of the byte being awaited (at most
+two bytes in flight); writes are unchanged. The host MMIO model now holds a
+received byte until a later command or STOP, like the hardware. With the old
+loop restored it fails (`imu_i2c4_read(..., 16) == 0` assertion); with the
+fix all 143 source tests pass. `imu_i2c4_last_fault()` records the failed
+stage, byte index, status, raw interrupt, FIFO levels and enable status
+before abort cleanup; the BMI160 and BMI323 adapters print the transport
+code and register.
+
+Result on robot-72 after the fix, at rest:
+
+```text
+RTD: imu a_mg=-488,601,-555 g_mdps=244,854,488 temp_mC=25607
+RTD: imu a_mg=-482,595,-556 g_mdps=-183,0,427 temp_mC=25560
+```
+
+About 0.95 g total, gyro below 1 °/s, 25.6 °C. BMI160 readings are
+**verified on hardware** through `beitlabduino_imu -e milkv`. The carrier
+BMI323 with the fixed transport, bus timing and a J22 serial capture remain
+pending.

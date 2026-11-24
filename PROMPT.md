@@ -494,6 +494,19 @@ only 0x68/0x69 identity probes and configure only BMI160 chip ID 0xD1.
 Use its byte protocol, suspend-safe individual writes, minimum timing,
 power/range checks, bounded transfers and unchanged output on failure.
 Share the existing I²C transport while preserving carrier routing.
+If controller shutdown times out with master activity, try one bounded
+controller-local abort (enable before abort), then retry shutdown. Never
+change routes or configure a sensor until shutdown succeeds. Preserve
+profile checks before MMIO, avoid system clock/reset writes, and expose
+the failed initialization's enable, enable-status and status registers
+in the browser-visible BMI160 error instead of implying a wiring fault.
+On robot-72 the abort bit cleared without releasing an active master;
+a single read-only RESTART/READ/STOP released it. Allow this bounded
+fallback only with master/restart mode, an empty TX FIFO with space,
+and a current plain seven-bit target permitted by the compiled profile.
+Do not rewrite the target or send sensor register data for recovery.
+A NACK ends that recovery read normally; still require successful
+controller shutdown before route configuration or ordinary probing.
 
 ## Flash document
 

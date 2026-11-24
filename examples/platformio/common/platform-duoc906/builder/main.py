@@ -43,9 +43,15 @@ INCLUDES = [PROJECT_DIR, env.subst("$PROJECT_INCLUDE_DIR"),
 # folder to the include path. Names are separated by spaces or commas.
 LIB_ROOT = os.path.join(REPO, "examples", "platformio", "common", "lib")
 libraries = env.GetProjectOption("custom_libs", "").replace(",", " ").split()
+# beitlabduino_imu selects the carrier BMI323 or the J3 BMI160 from the
+# profile at run time, so it links both drivers.
+if "beitlabduino_imu" in libraries:
+    libraries += [lib for lib in ("carrier_imu", "beitlabduino_bmi160")
+                  if lib not in libraries]
 # Preserve existing carrier example/user configurations after sharing the
 # bounded I2C4 transport with standalone sensors.
-if "carrier_imu" in libraries and "duos_i2c4" not in libraries:
+if ({"carrier_imu", "beitlabduino_bmi160"} & set(libraries)
+        and "duos_i2c4" not in libraries):
     libraries.append("duos_i2c4")
 for _lib in libraries:
     _dir = os.path.join(LIB_ROOT, _lib)

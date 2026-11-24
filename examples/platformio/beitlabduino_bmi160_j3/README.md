@@ -7,4 +7,4 @@ Selects `duos_bare_bmi160_j3`, inheriting the bare-Duo profile.
 From this folder on the PC: `pio run -t upload`, then `pio run -t rtmonitor`.
 Serial output is also on J22 at 115200 8N1; no IMU interrupt wire is required.
 Prints acceleration (mg), gyro (mdps) and temperature (mC) at about 10 Hz.
-See [BMI160.md](../../../docs/BMI160.md); builds/tests pass, hardware readings remain pending.
+See [BMI160.md](../../../docs/BMI160.md); the shared BMI160 driver reads on robot-72 through `beitlabduino_imu -e milkv`; this example itself is untested on hardware.

@@ -51,6 +51,8 @@ class IMUTest(unittest.TestCase):
                 '#include <stdint.h>\nvoid bl_delay(uint32_t);\n'
                 'void pg_print(const char *, ...);\n#define bl_print pg_print\n')
             shutil.copyfile(module / 'beitlabduino_imu.h', root / 'beitlabduino_imu.h')
+            shutil.copyfile(REPO / 'examples/platformio/common/lib/beitlabduino_bmi160/beitlabduino_bmi160.h',
+                            root / 'beitlabduino_bmi160.h')
             (root / 'test.c').write_text(SENSOR_HARNESS.split('int main(void)', 1)[0] + WRAPPER_HARNESS)
             self.compile_and_run(root, [SOURCE / 'bmi323.c', module / 'beitlabduino_imu.c'])
 
@@ -165,25 +167,45 @@ int main(void)
 WRAPPER_HARNESS = r'''
 #include <stdarg.h>
 #include <stdio.h>
+#include "beitlabduino_bmi160.h"
 #include "beitlabduino_imu.h"
-static int init_error;
-static unsigned bus_reads;
-static char message[256];
+#include "pg_profile.h"
+static int init_error, bmi160_begin_rc, bmi160_read_rc;
+static unsigned bus_reads, bmi160_begins, bmi160_reads, bmi160_addr;
+static enum pg_i2c4_route route = PG_I2C4_NONE;
+static char message[256], previous[256];
+static int timeout_bus;
+static uint32_t abort_bits = 1;
+enum pg_i2c4_route pg_profile_i2c4_route(void) { return route; }
+int bl_bmi160_begin(void) { bmi160_begins++; bmi160_addr = bmi160_begin_rc ? 0 : 0x69; return bmi160_begin_rc; }
+unsigned bl_bmi160_address(void) { return bmi160_addr; }
+int bl_bmi160_read(bl_bmi160_sample_t *sample)
+{
+    bmi160_reads++;
+    if (bmi160_read_rc == BL_BMI160_SAMPLE_READY) {
+        sample->accel_mg[0] = 1; sample->accel_mg[1] = 2; sample->accel_mg[2] = 1000;
+        sample->gyro_mdps[0] = -4; sample->gyro_mdps[1] = 5; sample->gyro_mdps[2] = 6;
+        sample->temperature_mc = 23000;
+    }
+    return bmi160_read_rc;
+}
 int imu_i2c4_init(void) { return init_error; }
 int imu_i2c4_read(void *ctx, uint8_t reg, uint8_t *data, size_t length)
 {
     bus_reads++;
+    if (timeout_bus) return -2; /* IMU_I2C_TIMEOUT */
     return read_bus(ctx, reg, data, length);
 }
 int imu_i2c4_write(void *ctx, uint8_t reg, const uint8_t *data, size_t length)
 {
     return write_bus(ctx, reg, data, length);
 }
-uint32_t imu_i2c4_abort_source(void) { return 1; }
+uint32_t imu_i2c4_abort_source(void) { return abort_bits; }
 void bl_delay(uint32_t ms) { delay_bus(NULL, ms); }
 void pg_print(const char *fmt, ...)
 {
     va_list args;
+    memcpy(previous, message, sizeof(previous));
     va_start(args, fmt);
     vsnprintf(message, sizeof(message), fmt, args);
     va_end(args);
@@ -196,6 +218,29 @@ int main(void)
     sample = sentinel;
     assert(bl_imu_read(&sample) == BL_IMU_ERROR && bus_reads == 0);
     assert(bl_imu_read(NULL) == BL_IMU_ERROR);
+    assert(bl_imu_begin() == BL_IMU_ERROR && bus_reads == 0 && writes == 0 && !bmi160_begins);
+    assert(strstr(message, "beitlab_robotics_rev011_imu") && strstr(message, "duos_bare_bmi160_j3"));
+    assert(!bl_imu_sensor());
+
+    /* Standalone Duo S: delegate to the J3 BMI160 and never touch the BMI323. */
+    route = PG_I2C4_J3; bmi160_begin_rc = -1;
+    assert(bl_imu_begin() == BL_IMU_ERROR && bmi160_begins == 1 && !bl_imu_sensor());
+    assert(bl_imu_read(&sample) == BL_IMU_ERROR && !bmi160_reads);
+    bmi160_begin_rc = 0;
+    assert(bl_imu_begin() == 0 && !strcmp(bl_imu_sensor(), "BMI160 J3 I2C4 0x69"));
+    bmi160_read_rc = BL_BMI160_NOT_READY;
+    assert(bl_imu_read(&sample) == BL_IMU_NOT_READY);
+    assert(!memcmp(&sample, &sentinel, sizeof(sample)));
+    bmi160_read_rc = BL_BMI160_SAMPLE_READY;
+    assert(bl_imu_read(&sample) == BL_IMU_SAMPLE_READY);
+    assert(sample.accel_mg[2] == 1000 && sample.gyro_mdps[0] == -4 && sample.temperature_mc == 23000);
+    bmi160_read_rc = BL_BMI160_ERROR; before = bmi160_reads;
+    assert(bl_imu_read(&sample) == BL_IMU_ERROR && bmi160_reads == before + 1);
+    assert(bl_imu_read(&sample) == BL_IMU_ERROR && bmi160_reads == before + 1 && !bl_imu_sensor());
+    assert(bus_reads == 0 && writes == 0);
+
+    /* Robotics carrier: BMI323 only. */
+    route = PG_I2C4_CARRIER; before = bmi160_begins; sample = sentinel;
     init_error = -1;
     assert(bl_imu_begin() == BL_IMU_ERROR && bus_reads == 0 && writes == 0);
     assert(strstr(message, "select beitlab_robotics_rev011_imu"));
@@ -205,8 +250,14 @@ int main(void)
     init_error = 0; regs[0] = 0xd1;
     assert(bl_imu_begin() == BL_IMU_ERROR && writes == 0);
     assert(strstr(message, "chip=d1"));
+    /* Bus held low (e.g. unpowered carrier): name the I2C code and the likely cause. */
+    timeout_bus = 1; abort_bits = 0;
+    assert(bl_imu_begin() == BL_IMU_ERROR && writes == 0);
+    assert(strstr(previous, "init error=-1 i2c=-2 chip=0") && strstr(message, "carrier power"));
+    timeout_bus = 0; abort_bits = 1;
     regs[0] = 0x43;
     assert(bl_imu_begin() == 0 && delays >= 160);
+    assert(!strcmp(bl_imu_sensor(), "BMI323 carrier I2C4 0x68") && bmi160_begins == before);
     assert(bl_imu_read(&sample) == BL_IMU_NOT_READY);
     assert(!memcmp(&sample, &sentinel, sizeof(sample)));
     regs[2] = 0xc0;
@@ -269,7 +320,7 @@ void mock_pinmux(const char *, const char *);
 struct i2c_regs {
     uint32_t ic_con, ic_tar, p0[2], ic_cmd_data, ic_ss_scl_hcnt, ic_ss_scl_lcnt;
     uint32_t p1[5], ic_intr_mask, ic_raw_intr_stat, ic_rx_tl, ic_tx_tl, ic_clr_intr;
-    uint32_t p2[4], ic_clr_tx_abrt, p3[5], ic_enable, ic_status, p4[2], ic_sda_hold;
+    uint32_t p2[4], ic_clr_tx_abrt, p3[5], ic_enable, ic_status, ic_txflr, ic_rxflr, ic_sda_hold;
     uint32_t ic_tx_abrt_source, p5[6], ic_enable_status;
 };
 #define IC_TX_ABRT 0x40
@@ -301,9 +352,14 @@ DRIVER_HARNESS = r'''
 #define MUX 0x03001000u
 #define DDR 0x03021004u
 static unsigned accesses, sleeps, enabled, stop, aborting, nack, stuck, disable_stuck;
+static unsigned held_master, abort_stuck, abort_pending, abort_requests;
+static unsigned abort_ignored, recovery_reads, recovery_nack, recovery_stuck, recovery_target;
+static unsigned recovery_con, recovery_no_space;
 static uint32_t ddr = 0xffffffff, mux_scl = 0x107, mux_sda = 0x207;
 static uint32_t adc_scl = 0x402, adc_sda = 0x502, last_target;
-static uint32_t commands[32], ncommands, rx_pending, rx_value, tx_abort;
+/* DesignWare model: a received byte reaches the RX FIFO only once a later
+ * command or its own STOP decides ACK/NACK; until then the master holds. */
+static uint32_t commands[32], ncommands, rx_pending, rx_held, rx_value, tx_abort;
 uint32_t mmio_read_32(uintptr_t address)
 {
     accesses++;
@@ -315,14 +371,20 @@ uint32_t mmio_read_32(uintptr_t address)
     assert(address >= BASE && address < BASE + 0x100);
     switch (address - BASE) {
     case 0xfc: return 0x44570140;
-    case 0x9c: return disable_stuck ? 1 : enabled;
-    case 0x6c: return enabled;
+    case 0x00: return recovery_con ? recovery_con : IC_CON_MM | IC_CON_RE | IC_CON_SD | IC_CON_SPD_SS;
+    case 0x04: return recovery_target;
+    case 0x9c: return (disable_stuck || held_master) ? 1 : enabled;
+    case 0x6c:
+        if (abort_pending && !abort_stuck) { if (!abort_ignored) held_master = 0; abort_pending = 0; }
+        return enabled | (abort_pending ? 2 : 0);
     case 0x34: return aborting ? IC_TX_ABRT : stop ? IC_STOP_DET : 0;
     case 0x80: return tx_abort;
     case 0x54: aborting = 0; return 0;
     case 0x40: stop = aborting = 0; return 0;
-    case 0x70: return stuck ? 0 : IC_STATUS_TFE | IC_STATUS_TFNF | (rx_pending ? IC_STATUS_RFNE : 0);
-    case 0x10: assert(rx_pending); rx_pending = 0; return rx_value++;
+    case 0x70: return stuck ? 0 : IC_STATUS_TFE | (recovery_no_space ? 0 : IC_STATUS_TFNF) |
+        (held_master ? IC_STATUS_MA : 0) | (rx_pending ? IC_STATUS_RFNE : 0);
+    case 0x74: case 0x78: return 0; /* FIFO levels, fault snapshot only */
+    case 0x10: assert(rx_pending); rx_pending--; return rx_value++;
     default: assert(!"unexpected register read"); return 0;
     }
 }
@@ -336,14 +398,27 @@ void mmio_write_32(uintptr_t address, uint32_t value)
     if (address == MUX + 0xf4) { assert(!(ddr & (1u << 2))); adc_sda = value; return; }
     assert(address >= BASE && address < BASE + 0xa0); /* No motor/PWM/SPI/IRQ writes. */
     switch (address - BASE) {
-    case 0x6c: enabled = value & 1; break;
+    case 0x6c:
+        if (value & 2) { assert(enabled); abort_requests++; abort_pending = 1; }
+        enabled = value & 1; break;
     case 0x04:
         assert(value == 0x68 || (value == 0x69 && pg_profile_i2c4_route() == PG_I2C4_J3));
         last_target = value; break;
     case 0x10:
+        if (held_master && abort_ignored) {
+            assert(enabled && value == (IC_CMD | IC_STOP | 0x400));
+            assert(recovery_target == 0x68 || (recovery_target == 0x69 && pg_profile_i2c4_route() == PG_I2C4_J3));
+            recovery_reads++;
+            if (recovery_stuck) return;
+            held_master = 0; stop = 1;
+            if (recovery_nack) { aborting = 1; tx_abort = 1; }
+            return;
+        }
         assert(ncommands < 32); commands[ncommands++] = value;
         if (nack) { aborting = 1; tx_abort = 1; break; }
-        if (value & IC_CMD) { assert(!rx_pending); rx_pending = 1; }
+        if (rx_held) { rx_held = 0; rx_pending++; }
+        if (value & IC_CMD) { if (value & IC_STOP) rx_pending++; else rx_held = 1; }
+        assert(rx_pending <= 2); /* never more than two bytes in flight */
         if (value & IC_STOP) stop = 1;
         break;
     case 0x00: assert(value == (1|2|0x20|0x40)); break;
@@ -357,11 +432,11 @@ void mmio_clrsetbits_32(uintptr_t address, uint32_t clear, uint32_t set)
 {
     mmio_write_32(address, (mmio_read_32(address) & ~clear) | set);
 }
-void arch_usleep(unsigned long us) { assert(us == 10); sleeps++; assert(sleeps <= 3000); }
+void arch_usleep(unsigned long us) { assert(us == 10 || us == 100); sleeps++; assert(sleeps <= 3000); }
 void mock_pinmux(const char *pad, const char *function)
 {
     accesses++;
-    assert(!enabled);
+    assert(!enabled && !held_master && !disable_stuck);
     if (pg_profile_i2c4_route() == PG_I2C4_CARRIER)
         assert((!strcmp(pad, "ADC3") && !strcmp(function, "IIC4_SCL")) ||
                (!strcmp(pad, "ADC2") && !strcmp(function, "IIC4_SDA")));
@@ -437,9 +512,42 @@ int main(void)
     mux_scl = 6; mux_sda = 3; ddr = 0xffffffff;
     assert(imu_i2c4_init() == 0); /* Other pin functions must be preserved. */
     assert(ddr == 0xffffffff && mux_scl == 6 && mux_sda == 3);
-    disable_stuck = 1; sleeps = 0;
+    /* A running master can survive C906 reload with ENABLE already cleared.
+     * Disabling alone cannot release it. Re-enable, then ABORT, before muxing. */
+    held_master = 1; enabled = 0; sleeps = 0; before = abort_requests;
+    assert(imu_i2c4_init() == 0);
+    assert(abort_requests == before + 1 && !held_master && !enabled);
+    assert(sleeps <= 2001);
+    /* Actual robot-72 behavior: ABORT clears but master holds SCL.
+     * A single read/RESTART/STOP at the existing allowed address releases it. */
+    abort_ignored = held_master = 1; recovery_target = 0x68; sleeps = 0;
+    assert(imu_i2c4_init() == 0 && recovery_reads == 1 && !held_master && !enabled);
+    held_master = recovery_nack = 1; sleeps = 0;
+    assert(imu_i2c4_init() == 0 && recovery_reads == 2 && !held_master && !enabled);
+    recovery_nack = 0; held_master = 1; recovery_target = 0x40; sleeps = 0;
+    assert(imu_i2c4_init() == IMU_I2C_TIMEOUT && recovery_reads == 2);
+    recovery_target = 0x168; sleeps = 0; /* Never turn a ten-bit/special target into seven-bit. */
+    assert(imu_i2c4_init() == IMU_I2C_TIMEOUT && recovery_reads == 2);
+    recovery_target = 0x68; recovery_con = IC_CON_RE | IC_CON_SD; sleeps = 0;
+    assert(imu_i2c4_init() == IMU_I2C_TIMEOUT && recovery_reads == 2); /* Not master. */
+    recovery_con = IC_CON_MM | IC_CON_SD; sleeps = 0;
+    assert(imu_i2c4_init() == IMU_I2C_TIMEOUT && recovery_reads == 2); /* No restart. */
+    recovery_con = 0; recovery_no_space = 1; sleeps = 0;
+    assert(imu_i2c4_init() == IMU_I2C_TIMEOUT && recovery_reads == 2);
+    recovery_no_space = 0; recovery_stuck = 1; sleeps = 0;
+    assert(imu_i2c4_init() == IMU_I2C_TIMEOUT && recovery_reads == 3);
+    held_master = recovery_stuck = abort_ignored = 0;
+    disable_stuck = 1; sleeps = 0; before = abort_requests;
     assert(imu_i2c4_init() == IMU_I2C_TIMEOUT);
-    assert(sleeps > 0 && sleeps <= 1000);
+    assert(sleeps > 0 && sleeps <= 1000 && abort_requests == before);
+    disable_stuck = 0; held_master = abort_stuck = 1; sleeps = 0;
+    assert(imu_i2c4_init() == IMU_I2C_TIMEOUT);
+    assert(sleeps <= 2001 && held_master && abort_pending);
+    { struct imu_i2c4_init_state state = imu_i2c4_last_init_state();
+      before = accesses;
+      assert(state.enable == 3 && state.enable_status == 1 && (state.status & IC_STATUS_MA));
+      (void)imu_i2c4_last_init_state();
+      assert(accesses == before); }
     return 0;
 }
 '''
