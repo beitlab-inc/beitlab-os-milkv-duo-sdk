@@ -173,7 +173,7 @@ login message show the same code.
 Without the imager:
 
 ```bash
-python3 scripts/configure-image.py --image beitlab-robotics-milkv-duo-os-0.5.0-duos-standalone-arm64-sd.img \
+python3 scripts/configure-image.py --image beitlab-robotics-milkv-duo-os-0.5.1-duos-standalone-arm64-sd.img \
   --output robot-07.img --board duos-standalone --hostname robot-07 \
   --studio-url http://192.168.1.116:8090 --ssh-key ~/.ssh/id_ed25519.pub
 ```

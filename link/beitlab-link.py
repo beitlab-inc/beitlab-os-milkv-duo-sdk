@@ -39,7 +39,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.5.0-terminal.1"
+VERSION = "0.5.1"
 log = logging.getLogger("beitlab-link")
 
 HEARTBEAT_S = 10
