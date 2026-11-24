@@ -494,6 +494,19 @@ only 0x68/0x69 identity probes and configure only BMI160 chip ID 0xD1.
 Use its byte protocol, suspend-safe individual writes, minimum timing,
 power/range checks, bounded transfers and unchanged output on failure.
 Share the existing I²C transport while preserving carrier routing.
+If controller shutdown times out with master activity, try one bounded
+controller-local abort (enable before abort), then retry shutdown. Never
+change routes or configure a sensor until shutdown succeeds. Preserve
+profile checks before MMIO, avoid system clock/reset writes, and expose
+the failed initialization's enable, enable-status and status registers
+in the browser-visible BMI160 error instead of implying a wiring fault.
+On robot-72 the abort bit cleared without releasing an active master;
+a single read-only RESTART/READ/STOP released it. Allow this bounded
+fallback only with master/restart mode, an empty TX FIFO with space,
+and a current plain seven-bit target permitted by the compiled profile.
+Do not rewrite the target or send sensor register data for recovery.
+A NACK ends that recovery read normally; still require successful
+controller shutdown before route configuration or ordinary probing.
 
 ## Flash document
 
@@ -573,8 +586,9 @@ listed as pending in `docs/sdk-notes.md`. Do not mark it passed.
 - The balance controller, FOC, and `sg2000_hal.h`. Those stay in
   `Balanced_robot`.
 - Rebuilding `fip.bin` as the normal upload.
-- A web IDE. SSH and PlatformIO are the client. The agent is a C program
-  with a line interface so a web page can call it later.
+- A web IDE on the board. SSH and PlatformIO stay the local clients. The
+  web Studio is a separate backend; the board only links to it outbound
+  (see "Studio link and hardware identity (0.5.0)").
 - Programming the 8051.
 - Requiring Wi-Fi hardware: Ethernet must also work on boards without it.
 - Changing the carrier schematic or the robot pin map.
@@ -604,3 +618,216 @@ release write permission only to the publishing job. Account for SDK disk
 requirements, using an explicit free-space check and configurable runner.
 CI must check carrier pad claims from the in-repo profile snapshot without
 importing or requiring the sibling robot/carrier repositories.
+
+## Studio link and hardware identity (0.5.0)
+
+The 2026-11-23 product update connects the board to the beitlab Robotics
+Studio (`../robotics-studio`, PLAN.md section 5) and fixes the board type
+when the image is built. Students use only a browser: the board connects
+**outbound** to the Studio's `device-hub`, and nothing new listens on the
+board. Everything above stays in force. In particular uploads still stop
+and start the C906 through `remoteproc` and never reboot Linux, and
+network exposure of the board stays SSH only.
+
+### Two images from one build
+
+`scripts/build-image.sh` builds the SDK once and packs two root
+filesystems that differ only in a small overlay:
+
+| | Standalone | Robotics Board |
+| --- | --- | --- |
+| File | `beitlab-robotics-milkv-duo-os-<v>-duos-standalone-arm64-sd.img` | `beitlab-robotics-milkv-duo-os-<v>-robotics-board-arm64-sd.img` |
+| `/etc/beitlab/hardware` | `duos_standalone` | `robotics_board_rev011` |
+| Default profile reported | `duos_bare` | `beitlab_robotics_rev011` |
+| Starter (`playground.elf` and `playground-starter.elf`) | the starter above | the board inspector below |
+| Product line (`/etc/issue`, `os-release`, MOTD, `/etc/duo-playground-release`) | `... (Milk-V Duo S standalone)` | `... (Beitlab Robotics Board rev 0.11)` |
+
+The kernel, device tree, agent, `rtos-control`, user and security model
+are the same in both. Keep `image/dts/playground_duos.dtsi` unchanged, so
+bare Duo S programs behave exactly as on 0.4.x. `package-release.py`
+publishes both images, and `SHA256SUMS` covers both. Every existing
+post-build check runs on each image, plus a check that the variant files
+match the table. Balance Robot v1 uses the Robotics Board image.
+
+### Python 3 runtime
+
+0.5.0 adds Buildroot's `python3` (`BR2_PACKAGE_PYTHON3=y`, compiled
+`.pyc`, no pip, no third-party packages). The "no Python on the device"
+rule in "Agent" still holds for `rtos-agent`, which stays a static C
+program. Python is there for the Studio: students' Linux programs
+(`linux.run`) and the link. Students cannot install packages. The post-build
+checks confirm `/usr/bin/python3` runs, that pip is absent, and that the
+root partition still has room.
+
+### beitlab-link
+
+`image/overlay/usr/bin/beitlab-link` (source in `link/`) is a Python 3
+program using only the standard library (`urllib`, `ssl`, `json`) and the
+image's CA certificates. `beitlab-link.service` is enabled and starts after
+`network-online.target` and `time-sync.target`.
+
+- It runs as the regular user `beitlab`. It acts on the C906 only through
+  `sudo -n /usr/libexec/playground/rtos-control` and `/usr/bin/bl_send`,
+  so it gains no new privilege. Jobs never run a shell, `eval` nothing, and
+  passes no server text to a command line except where the table below
+  says so, after validation.
+- It is idle (exits 0 and stays inactive) when no Studio URL is set.
+- It keeps its state in `/run/beitlab-link/status` (one `key=value` per
+  line) and adds a line to the MOTD.
+- Transport, all HTTPS (plain HTTP only when the URL says `http://`, for
+  the lab):
+  - `GET <url>/v1/device/jobs?wait=25`, long poll;
+  - `POST <url>/v1/device/jobs/<id>/output` with log or stdout chunks;
+  - `POST <url>/v1/device/jobs/<id>/result`;
+  - `POST <url>/v1/device/heartbeat` every 10 s.
+  Reconnect with exponential backoff (1 s to 60 s, with jitter).
+- The device secret reaches the service through systemd
+  `LoadCredential=` from a root-only file, so it is never in a file the
+  `beitlab` user owns. Requests carry `Authorization: Device <secret>`.
+  The hub stores only `sha256(secret)`.
+
+Heartbeat body: hostname, image version, `/etc/beitlab/hardware`,
+`boot_id`, uptime, `rtos-control status`, link version and, on the
+Robotics Board image, `/run/beitlab/board-status.json`.
+
+### Job allowlist
+
+The link runs only these jobs. It refuses anything else, and logs the
+refusal, the same way the hub does. Arguments are validated before
+use:
+
+| Job | Action |
+| --- | --- |
+| `status` | `rtos-control status`, release, `boot_id`, uptime, hardware identity |
+| `mcu.load {elf, sha256}` | Download the ELF from the hub over the same connection (at most 4 MiB), check its size and sha256, stream it to `rtos-control load`. Keep a private copy as the student's last program |
+| `mcu.log {follow, seconds ≤ 600}` | `rtos-control log [-f]`, streamed, stopped after `seconds` |
+| `mcu.recover`, `mcu.lock`, `mcu.unlock`, `mcu.ping {nonce}` | The matching `rtos-control` command |
+| `mailbox.send {id, value}` | `bl_send`, `id` in 0x00–0x4f, `value` in 0–0x7fffffff |
+| `linux.put {name, script, sha256}` | Write `~/studio/<name>.py` (mode 0600, at most 256 KiB). `name` must match `[a-z0-9_]{1,32}` |
+| `linux.run {name, timeout_s ≤ 600}` | `timeout <timeout_s> python3 ~/studio/<name>.py`, argument list (no shell), stdout/stderr streamed. One run per name |
+| `linux.stop {name}` | Stop that run (TERM, then KILL after 3 s) |
+| `hardware.inspect` | Robotics Board image only: run the inspection again (below), then load the student's last program again |
+
+### Board inspector (Robotics Board image)
+
+Linux cannot read I²C4, because the device tree gives it to the C906. The
+Robotics Board image's starter is therefore a **read-only board
+inspector** (`firmware/inspector/`). It reuses the I²C4 transport and the
+route release of `examples/platformio/robotics_imu`, and the existing
+mailbox runtime. On every start it:
+
+- configures **no output pad**: it leaves MOT_EN_REQ, ESTOP_ARM, WDT_KICK,
+  DRV_NSLEEP, DRV_NRESET, the PWM controllers and SPI3 exactly as reset
+  and the board pull-downs leave them;
+- reads the BMI323 chip ID (0x68, low byte 0x43, with the two dummy
+  bytes);
+- reads the four ADS1115 channels (0x48) with single-shot conversions;
+  writing the ADC's config register is the only I²C write;
+- reads the PCA9685 (0x40) MODE1 register and writes nothing to it;
+- reads DRV_NFAULT (A28) as an input. Its value means "no fault" only
+  while the drivers are awake, so the report says so;
+- answers ping (0x40) like the standalone starter, so `recover` and
+  `host_ping` keep working.
+
+There is no E-stop state input on the Duo S. VMOT (ADC channel 3) is
+switched by the E-stop latch, so the report shows "motor power off
+(E-stop open or not armed)" when VMOT is under 1 V.
+
+Mailbox ids (recorded in `firmware/include/playground_cmd.h` and
+`docs/mailbox.md` before use):
+
+| Id | Request `param_ptr` | Reply |
+| --- | --- | --- |
+| 0x10 `PLAYGROUND_CMD_INSPECT_STATE` | 0 | `BL_CMD_ACK` \| report sequence number \| done flag |
+| 0x11 `PLAYGROUND_CMD_INSPECT_FIELD` | field index | `BL_CMD_ACK` \| raw field value (31 bits) |
+
+0x12–0x17 are reserved for later inspector use. Linux decodes the raw
+fields, since tests can check decoding on the host. The fields are the
+report format version, a found/missing bit per part, the BMI323 chip ID,
+the four ADS1115 conversions (raw counts and the PGA setting), the PCA9685
+MODE1 byte and the DRV_NFAULT level.
+
+`/usr/bin/beitlab-board-status` (Python, run by
+`beitlab-board-status.service` after `rtos-agent.service`, and by the
+link) asks for the fields with `bl_send` and writes
+`/run/beitlab/board-status.json`:
+
+```json
+{"format": 1, "time": "2026-11-23T10:00:00Z", "carrier": "found",
+ "imu": {"ok": true, "chip_id": "0x43"},
+ "rails": {"ok": true, "vbat": 15.21, "vservo": 6.01, "v5": 5.31, "vmot": 15.12},
+ "servo_driver": {"ok": true, "mode1": "0x11"},
+ "driver_fault": {"ok": true, "level": "high", "note": "valid while drivers are awake"},
+ "warnings": []}
+```
+
+Rail limits (warning, deploy blocked) are recorded in the helper with
+their source. "carrier": "missing" when no part answers (the Robotics
+Board image flashed on a bare Duo S). The standalone image runs no
+inspector and writes no status file.
+
+`hardware.inspect`: stop the student's program, run
+`rtos-control recover` (which starts the inspector on this image), collect
+the report, then load the student's last program again with
+`rtos-control load`. The Studio asks the student before starting it.
+
+### Studio settings at flash time
+
+- `beitlab-imager.py` asks first: "Which board is this card for? Milk-V
+  Duo S alone / Beitlab Robotics Board", and picks the matching image.
+  `configure-image.py --board duos-standalone|robotics-board` refuses an
+  image of the other variant.
+- `--studio-url URL` (default from `imager.json`) or `--no-studio`. The
+  URL must be `https://`, or `http://` with a host on a private network.
+- The imager suggests a unique hostname such as `robot-07`.
+- Boot volume files, consumed into root-only files by a new
+  `/usr/libexec/playground/import-studio` before the link starts, like
+  `wifi.conf`:
+  - `playground/studio.conf` (the URL);
+  - `playground/device-secret` (32 random bytes, hex), written to
+    `/etc/beitlab/studio/device-secret` (0600 root).
+- The imager prints a **board card**: hostname, board type and a
+  6-character **claim code**, Crockford base32 of the first 30 bits of
+  `sha256("beitlab-claim-v1" || sha256(secret))`. The hub can compute it
+  from the stored hash. J22 and the MOTD show the same code.
+- A new marker, `playground/studio-supported`, makes the PC tools refuse
+  Studio options on older images. Release images contain no secret, URL
+  or claim code.
+- Tests in `scripts/tests/` in the existing style: real FAT images,
+  isolated imports, both image variants.
+
+### Acceptance (0.5.0)
+
+Host tests and `../robotics-studio/tools/mock_board`, which runs this
+link against fake `rtos-control`, `bl_send` and inspector replies, cover
+the link, the allowlist, the import and the report decoding. The
+inspector builds with the SDK toolchain, and its decoding is tested with
+recorded register values. Hardware tests stay **pending** in
+`docs/sdk-notes.md` until run:
+
+1. Standalone image on a bare Duo S: the board appears in the Studio by
+   hostname + claim code as "Milk-V Duo S (standalone)"; Upload & run
+   works; Linux uptime does not reset.
+2. Robotics Board image on a carrier: status panel shows the IMU, rails,
+   servo driver and fault input with plausible values.
+3. Robotics Board image on a bare Duo S: "Carrier not found".
+4. Unplugging the network for a minute: the link reconnects by itself.
+
+### Human Studio terminal (owner authorized, 2026-11-24)
+
+The owner authorizes the browser Terminal in robotics-studio PLAN.md 5.7. This is a separate,
+human-operated PTY channel, not a new command job; keep the job allowlist unchanged and expose
+no terminal tool to the AI agent. Advertise `terminal_v1` in heartbeats. The link exchanges
+session state/input/resize/output outbound through `/v1/device/terminal`, using its device
+credential. Open only the fixed `/bin/sh -i` under the existing `beitlab` identity, in `~/studio`,
+with a minimal environment and no history. No server-selected command, path or environment.
+Use standard-library PTY/termios only, no pip, SSH relay or inbound port. Preserve bytes with
+base64, acknowledge input/output sequence numbers, and bound all buffers. Close the PTY on
+session close/expiry, shell exit, link shutdown or 25 seconds without a successful exchange;
+kill shell and foreground process groups and reap children. Hub sessions also expire after
+ten minutes, five minutes without keyboard input, or 25 seconds without browser presence.
+The ordinary user's existing filesystem and restricted sudo rights still apply: this shell
+is not a sandbox and shares a user identity with the link. Do not claim credential isolation.
+Existing flashed cards require an updated link/image; never use generic remote update commands
+to bypass the job allowlist. Test PTY behavior and cleanup on the host, record results in
+`docs/sdk-notes.md`, and call it **not verified on hardware** until a real updated board is tested.

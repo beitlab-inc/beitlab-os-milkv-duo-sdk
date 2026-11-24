@@ -6,15 +6,18 @@ No Linux image rebuild is needed. I²C4 belongs to the C906; do not enable
 a competing Linux driver for that controller.
 
 For an **external BMI160 on a standalone Duo S using J3**, use the
-separate [BMI160 example and wiring guide](BMI160.md). The carrier
-examples on this page remain BMI323-specific.
+separate [BMI160 example and wiring guide](BMI160.md). `robotics_imu`
+remains BMI323-specific.
 
 For a beitlabduino `setup()`/`loop()` version, use
 [`beitlabduino_imu`](../examples/platformio/beitlabduino_imu) instead of
-`robotics_imu` in the commands below. Both examples use the shared
-`common/lib/carrier_imu` decoder and `common/lib/duos_i2c4` transport,
-wiring, profile and serial output. The builder automatically includes
-the transport when the carrier decoder library is selected.
+`robotics_imu` in the commands below. Its default `robotics_board`
+environment reads this BMI323 with the same `common/lib/carrier_imu`
+decoder, `common/lib/duos_i2c4` transport, wiring, profile and serial
+output. Its `milkv` environment (`pio run -e milkv -t upload`) reads an
+external BMI160 on a standalone Duo S instead; see [BMI160.md](BMI160.md).
+The builder automatically includes the transport when the carrier decoder
+library is selected.
 
 | Connection | Carrier wiring |
 | --- | --- |
@@ -74,19 +77,30 @@ and requires no adapter. Ctrl-C leaves acquisition running.
 ## beitlabduino API
 
 The optional `beitlabduino_imu` module performs initialization and unit
-conversion in the caller's task. The new example already selects:
+conversion in the caller's task. The profile's I²C4 route selects the
+sensor at run time, so the same application code runs on both boards:
 
 ```ini
+[env:robotics_board]          ; carrier BMI323
 custom_profile = beitlab_robotics_rev011_imu
-custom_libs = beitlabduino carrier_imu beitlabduino_imu
+custom_libs = beitlabduino beitlabduino_imu
+
+[env:milkv]                   ; standalone Duo S, BMI160 on J3
+custom_profile = duos_bare_bmi160_j3
+custom_libs = beitlabduino beitlabduino_imu
 ```
 
-Include `beitlabduino.h` and `beitlabduino_imu.h` in your application.
+The builder adds `carrier_imu`, `beitlabduino_bmi160` and `duos_i2c4`
+automatically; older `custom_libs = beitlabduino carrier_imu
+beitlabduino_imu` lines keep working. Any other profile is refused before
+bus access. Include `beitlabduino.h` and `beitlabduino_imu.h` in your
+application.
 
 | API | Result |
 | --- | --- |
 | `bl_imu_begin()` | 0 on success, `BL_IMU_ERROR` (-1) on failure; allows explicit retry |
 | `bl_imu_read(&sample)` | `BL_IMU_SAMPLE_READY` (1), `BL_IMU_NOT_READY` (0), or `BL_IMU_ERROR` (-1) |
+| `bl_imu_sensor()` | `"BMI323 carrier I2C4 0x68"`, `"BMI160 J3 I2C4 0x68"`/`0x69`, or NULL before a successful begin |
 
 `bl_imu_sample_t` has `accel_mg[3]`, `gyro_mdps[3]` and `temperature_mc`
 in the units above. Print it only when the result **equals**
@@ -127,8 +141,17 @@ controller probe error can indicate a different OS/clock setup.
 
 Cross-builds and ELF checks pass. Host tests cover decoding, scaling,
 wrong devices, faults, policy refusal with no register accesses, route
-isolation, NACKs and timeouts. Physical carrier readings and bus timing
-measurements remain pending. See [sdk-notes.md](sdk-notes.md).
+isolation, NACKs and timeouts. The shared transport's multi-byte read
+deadlock, found and fixed on a standalone BMI160 (robot-72), also affected
+every BMI323 read, which is at least four bytes; the fix applies to the
+carrier unchanged. Physical carrier readings and bus timing measurements
+remain pending. See [sdk-notes.md](sdk-notes.md).
+
+A failed BMI323 initialization or read prints `i2c=` with the transport
+code: `-2` with `abort=0` is a timeout with no NACK (the bus is held, e.g.
+an unpowered carrier translator, or the `robotics_board` build on a bare
+Duo S, which needs `-e milkv`), and `-3` is an aborted transfer such as a
+NACK. A second line names the likely cause.
 
 Sources: [Bosch BMI323 datasheet, BST-BMI323-DS000-13](https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmi323-ds000.pdf),
 [Milk-V Duo S pinout](https://milkv.io/docs/duo/getting-started/duos#header-j4).

@@ -168,6 +168,7 @@ ADAPTER_TEST = r'''
 #include <stdio.h>
 #include "pg_profile.h"
 #include "beitlabduino_bmi160.h"
+#include "i2c4.h"
 static enum pg_i2c4_route route = PG_I2C4_CARRIER;
 static unsigned inits;
 static int init_error;
@@ -181,6 +182,10 @@ int imu_i2c4_init_at(unsigned address)
 int imu_i2c4_read(void *ctx, uint8_t reg, uint8_t *bytes, size_t length) { return read_bus(ctx, reg, bytes, length); }
 int imu_i2c4_write(void *ctx, uint8_t reg, const uint8_t *bytes, size_t length) { return write_bus(ctx, reg, bytes, length); }
 uint32_t imu_i2c4_abort_source(void) { return 1; }
+struct imu_i2c4_init_state imu_i2c4_last_init_state(void)
+{ return (struct imu_i2c4_init_state){0, 1, 0x26}; }
+struct imu_i2c4_fault imu_i2c4_last_fault(void)
+{ return (struct imu_i2c4_fault){6, 0, 0x27, 0x10, 0, 0, 1}; }
 void bl_delay(uint32_t ms) { delay_bus(NULL, ms > 5 ? ms - 5 : 0); } /* Worst partial tick. */
 void pg_print(const char *fmt, ...)
 {
@@ -197,6 +202,7 @@ int main(void)
     assert(strstr(message, "duos_bare_bmi160_j3"));
     route = PG_I2C4_J3; init_error = -2;
     assert(bl_bmi160_begin() == BL_BMI160_ERROR && !reads && !writes);
+    assert(strstr(message, "error=-2 en=0 state=1 status=26; sensor not probed"));
     init_error = 0; present = 0x69; regs[0] = 0xd1;
     assert(bl_bmi160_begin() == 0 && bl_bmi160_address() == 0x69 && probes == 3);
     assert(bl_bmi160_read(NULL) == BL_BMI160_ERROR);

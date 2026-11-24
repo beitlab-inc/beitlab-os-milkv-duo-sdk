@@ -27,9 +27,12 @@ The robot control firmware (`Balanced_robot`) and the carrier board design (`Rob
 | SDK pin (`sdk.lock`), patches, DT fragment, overlay, build scripts | written; the patches apply to the pinned commit; the DT passes the carrier check |
 | `rtos-agent` | written; host tests pass |
 | Starter firmware and the three examples | starter linked with the SDK toolchain and in the image; the examples type-check against the vendor headers and build the same way |
-| SD image | **built**: `beitlab-robotics-milkv-duo-os-0.4.1-duos-arm64-sd.img` (local release output); Wi-Fi, hostname and SSH public-key configuration before flashing; all post-build checks pass |
+| SD image | **built**: `beitlab-robotics-milkv-duo-os-0.5.1-duos-standalone-arm64-sd.img` (local release output, tag `v0.5.1`); Wi-Fi, hostname, SSH key, user password and Studio link configuration before flashing; all post-build checks pass. The Robotics Board image is not built (no inspector firmware yet) |
 | Wi-Fi 0.2.0 verification | automated provisioning, FAT image, boot-import and driver-loader checks pass; fresh-card association/DHCP/reconnect pending (no board connected on 2026-11-20) |
 | First-boot customization 0.4.0 | combined Wi-Fi/hostname/key tests pass on real FAT images and isolated BusyBox imports; fresh-card SSH/mDNS verification pending |
+| Studio link 0.5.0 | source written: `beitlab-link`, `import-studio`, board-status decoder, Python 3 (patch 0010), two image variants (`make-variant.py`), imager board choice, Studio address, claim code; host tests pass and the link runs against the Studio's mock board. The standalone image is built (0.5.0, then 0.5.1); on robot-72 (0.5.0) Studio's `mcu.load`/`mcu.log` jobs ran through the link. The Robotics Board inspector firmware is not written yet |
+| Studio terminal 0.5.1 | `beitlab-link` 0.5.1 relays the human browser terminal (`terminal_v1`); host PTY/relay tests pass; in the 0.5.1 image. **Not verified on hardware** |
+| Board IMU | carrier BMI323 or J3 BMI160 through `beitlabduino_imu`; the I2C4 multi-byte read fix makes the BMI160 read on robot-72 (**verified on hardware**); carrier BMI323 readings pending |
 | Acceptance tests (0.1.0) | on a Duo S, 2026-11-19: tests 2-8 passed, with uploads and recover leaving Linux running (same `boot_id`); test 1 passed over Wi-Fi, but the Ethernet link is not recorded |
 
 ## Layout

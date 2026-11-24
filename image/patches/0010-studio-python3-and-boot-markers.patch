@@ -1,0 +1,44 @@
+From: beitlab Robotics MilkV duo OS <image/patches>
+Subject: [PATCH 10] buildroot: python3 for the Studio, Studio boot-volume markers
+
+Local change for OS 0.5.0 (PROMPT.md "Studio link and hardware identity").
+
+- python3 with the standard library, compiled .pyc and the ssl module (HTTPS to
+  the Studio). No pip and no third-party packages. It runs beitlab-link and
+  students' Linux programs; rtos-agent stays a static C program.
+- The boot volume gets playground/studio-supported (the PC tools refuse Studio
+  settings on older images) and playground/board (duos_standalone or
+  robotics_board_rev011), so configure-image.py can check the image variant.
+  Both come from the rootfs overlay's /boot/playground, like the other markers.
+---
+diff --git a/buildroot/configs/milkv-duos-glibc-arm64-sd_defconfig b/buildroot/configs/milkv-duos-glibc-arm64-sd_defconfig
+index feb880d..6c4bfee 100644
+--- a/buildroot/configs/milkv-duos-glibc-arm64-sd_defconfig
++++ b/buildroot/configs/milkv-duos-glibc-arm64-sd_defconfig
+@@ -39,6 +39,9 @@ BR2_PACKAGE_SPI_TOOLS=y
+ BR2_PACKAGE_CA_CERTIFICATES=y
+ BR2_PACKAGE_LIBOPENSSL_BIN=y
+ BR2_PACKAGE_LIBOPENSSL_ENGINES=y
++BR2_PACKAGE_PYTHON3=y
++BR2_PACKAGE_PYTHON3_PY_PYC=y
++BR2_PACKAGE_PYTHON3_SSL=y
+ BR2_PACKAGE_C_PERIPHERY=y
+ BR2_PACKAGE_LIBUSB=y
+ BR2_PACKAGE_LIBUSB_EXAMPLES=y
+diff --git a/device/milkv-duos-glibc-arm64-sd/genimage.cfg b/device/milkv-duos-glibc-arm64-sd/genimage.cfg
+index 59b1a8b..077b9ab 100644
+--- a/device/milkv-duos-glibc-arm64-sd/genimage.cfg
++++ b/device/milkv-duos-glibc-arm64-sd/genimage.cfg
+@@ -14,6 +14,12 @@ image boot.vfat {
+ 		file playground/user-supported {
+ 			image = "fs/boot/playground/user-supported"
+ 		}
++		file playground/studio-supported {
++			image = "fs/boot/playground/studio-supported"
++		}
++		file playground/board {
++			image = "fs/boot/playground/board"
++		}
+ 	}
+ 	size = 128M
+ }

@@ -1,0 +1,21 @@
+[Unit]
+Description=Collect the board inspector's report (Robotics Board image)
+After=rtos-agent.service
+Wants=rtos-agent.service
+
+[Service]
+Type=oneshot
+# Needs only the mailbox (group beitlab). Running as beitlab also makes /run/beitlab
+# writable for beitlab-link, which runs the same helper for Inspect now.
+User=beitlab
+Group=beitlab
+RemainAfterExit=yes
+# The standalone image runs no inspector.
+ExecCondition=/bin/grep -qx robotics_board_rev011 /etc/beitlab/hardware
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/bin/beitlab-board-status
+RuntimeDirectory=beitlab
+RuntimeDirectoryPreserve=yes
+
+[Install]
+WantedBy=multi-user.target

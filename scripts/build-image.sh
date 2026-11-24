@@ -6,11 +6,15 @@
 #   scripts/build-image.sh            on Ubuntu 22.04 amd64 (SDK requirement)
 #   scripts/build-image.sh --docker   anywhere with Docker: runs this script
 #                                     in the SDK's documented build container
+#   --standalone-only                 skip the derived Robotics Board image
 #
-# Output:
-#   $BEITLAB_OUTPUT_DIR/beitlab-robotics-milkv-duo-os-<version>-duos-arm64-sd.img
+# Output (PROMPT.md 0.5.0, "Two images from one build"):
+#   $BEITLAB_OUTPUT_DIR/beitlab-robotics-milkv-duo-os-<version>-duos-standalone-arm64-sd.img
+#   $BEITLAB_OUTPUT_DIR/beitlab-robotics-milkv-duo-os-<version>-robotics-board-arm64-sd.img
 #   $BEITLAB_OUTPUT_DIR/rtos-agent-<version>-aarch64            (the agent binary in the image)
-#   $BEITLAB_OUTPUT_DIR/SHA256SUMS                              (both of the above)
+#   $BEITLAB_OUTPUT_DIR/SHA256SUMS                              (all of the above)
+# The SDK builds once (standalone); scripts/make-variant.py derives the Robotics
+# Board image from it by rewriting only the variant files.
 #   $BEITLAB_OUTPUT_DIR/dtb-check.txt, build-checks.txt     (post-build inspection)
 #
 # Steps: read sdk.lock -> full SDK checkout at sdk_commit -> host-tools at
@@ -28,11 +32,12 @@ lock() { sed -n "s/^$1[[:space:]]*=[[:space:]]*//p" "$REPO/sdk.lock" | head -1; 
 die() { echo "build-image: error: $*" >&2; exit 1; }
 say() { echo "build-image: $*"; }
 
-DOCKER=0 IN_DOCKER=0
+DOCKER=0 IN_DOCKER=0 ROBOTICS=1
 for a in "$@"; do
   case "$a" in
     --docker) DOCKER=1 ;;
     --in-docker) IN_DOCKER=1 ;;
+    --standalone-only) ROBOTICS=0 ;;
     -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     *) die "unknown option $a" ;;
   esac
@@ -52,18 +57,21 @@ if [ "$DOCKER" = 1 ]; then
   command -v docker >/dev/null || die "--docker needs docker"
   IMG="$(lock docker_image)"
   say "running in $IMG"
+  # The SDK, output and build folders are mounted at their host paths: CMake caches
+  # (FreeRTOS libraries, also used by host PlatformIO builds) record absolute
+  # paths and refuse a different mount point.
   # The SDK container runs as root (Milk-V's documented usage). GNU
   # autoconf packages Buildroot builds (host-tar, coreutils) refuse to
   # configure as root unless FORCE_UNSAFE_CONFIGURE=1.
   mkdir -p "$SDK" "$OUT" "$BUILD"
   exec docker run --rm -v "$REPO:/home/work" -w /home/work \
-    -v "$SDK:/home/sdk" -v "$OUT:/home/output" -v "$BUILD:/home/build" \
-    -e PLAYGROUND_SDK=/home/sdk -e BEITLAB_OUTPUT_DIR=/home/output \
-    -e BEITLAB_BUILD_DIR=/home/build -e PYTHONDONTWRITEBYTECODE=1 \
+    -v "$SDK:$SDK" -v "$OUT:$OUT" -v "$BUILD:$BUILD" \
+    -e PLAYGROUND_SDK="$SDK" -e BEITLAB_OUTPUT_DIR="$OUT" \
+    -e BEITLAB_BUILD_DIR="$BUILD" -e PYTHONDONTWRITEBYTECODE=1 \
     -e FORCE_UNSAFE_CONFIGURE=1 \
     -e PLAYGROUND_README_URL="${PLAYGROUND_README_URL:-}" \
     -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
-    "$IMG" /home/work/scripts/build-image.sh --in-docker
+    "$IMG" /home/work/scripts/build-image.sh --in-docker $([ "$ROBOTICS" = 0 ] && echo --standalone-only)
 fi
 if [ "$IN_DOCKER" = 1 ]; then
   # The bind-mounted repo belongs to the host user; let git use it, and
@@ -146,6 +154,10 @@ RTOS_BASE="$(mm CVIMMAP_FREERTOS_ADDR)"; RTOS_SIZE="$(mm CVIMMAP_FREERTOS_SIZE)"
 FW_BUILD="$BUILD/firmware"
 mkdir -p "$FW_BUILD"
 PLAYGROUND_SDK="$SDK" "$REPO/firmware/starter/build.sh" "$FW_BUILD/playground-starter.elf"
+if [ "$ROBOTICS" = 1 ]; then
+  [ -x "$REPO/firmware/inspector/build.sh" ] || die "firmware/inspector is missing; use --standalone-only"
+  PLAYGROUND_SDK="$SDK" "$REPO/firmware/inspector/build.sh" "$FW_BUILD/board-inspector.elf"
+fi
 if git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then
   STARTER_DESC="$(git -C "$REPO" describe --always --dirty --tags 2>/dev/null)"
 else
@@ -172,8 +184,7 @@ install -m 0644 "$REPO/image/busybox-user.config" "$SDK/device/$TARGET/busybox-u
 install -D -m 0755 "$BUILD/agent/rtos-agent" "$OV/usr/bin/rtos-agent"
 install -D -m 0755 "$FW_BUILD/host_ping" "$OV/usr/bin/host_ping"
 install -D -m 0755 "$FW_BUILD/bl_send" "$OV/usr/bin/bl_send"
-install -D -m 0644 "$FW_BUILD/playground-starter.elf" "$OV/usr/lib/firmware/playground.elf"
-install -D -m 0644 "$FW_BUILD/playground-starter.elf" "$OV/usr/lib/firmware/playground-starter.elf"
+install -D -m 0755 "$REPO/link/beitlab-link.py" "$OV/usr/bin/beitlab-link"
 
 README_URL="${PLAYGROUND_README_URL:-}"
 if [ -z "$README_URL" ] && remote="$(git -C "$REPO" remote get-url origin 2>/dev/null)"; then
@@ -183,35 +194,13 @@ if [ -z "$README_URL" ]; then
   README_URL="README.md of the duo-s-playground repository"
   say "warning: no git remote and no PLAYGROUND_README_URL; MOTD names the README without a URL"
 fi
-RELEASE_LINE="beitlab Robotics MilkV duo OS $VERSION (sdk ${COMMIT:0:12}, starter $STARTER_DESC)"
-cat > "$OV/etc/duo-playground-release" <<EOF
-DUO_PLAYGROUND_VERSION=$VERSION
-SDK_URL=$URL
-SDK_COMMIT=$COMMIT
-SDK_TARGET=$TARGET
-STARTER_FIRMWARE=$STARTER_DESC
-RELEASE_LINE="$RELEASE_LINE"
-EOF
-printf '%s\nREADME: %s\n' "$RELEASE_LINE" "$README_URL" > "$OV/etc/motd"
-# agetty prints /etc/issue on the serial console before the login prompt.
-cat > "$OV/etc/issue" <<EOF
-
-$RELEASE_LINE
-Network name: beitlab-milkv-duo.local
-SSH login: beitlab (provision an SSH public key before boot)
-No default password. Configure a user password before flashing or on J22.
-Administration: sudo; root SSH login is disabled.
-
-EOF
+# Release identity, starter and board files of the standalone variant; the
+# Robotics Board image gets its own from the same script (make-variant.py derive).
+VARIANT_ARGS=(--version "$VERSION" --sdk-url "$URL" --sdk-commit "$COMMIT" --sdk-target "$TARGET"
+              --starter-desc "$STARTER_DESC" --readme "$README_URL")
+python3 "$REPO/scripts/make-variant.py" overlay --variant standalone --dir "$OV" \
+  --starter "$FW_BUILD/playground-starter.elf" "${VARIANT_ARGS[@]}"
 echo beitlab-milkv-duo > "$OV/etc/hostname"
-cat > "$OV/usr/lib/os-release" <<EOF
-NAME="beitlab Robotics MilkV duo OS"
-ID=beitlab-milkv-duo
-ID_LIKE=buildroot
-VERSION="$VERSION"
-VERSION_ID="$VERSION"
-PRETTY_NAME="beitlab Robotics MilkV duo OS $VERSION"
-EOF
 chmod 0600 "$OV/etc/wpa_supplicant/beitlab-wlan0.conf"
 
 # ---- SDK build ----
@@ -252,7 +241,8 @@ tar -tJf "$TARBALL" | sed 's#^\./##' > "$LIST"
 for f in mnt/system/ko/cvitek_remoteproc.ko mnt/system/ko/cv181x_rtos_cmdqu.ko \
          mnt/system/ko/cv181x_fast_image.ko usr/bin/rtos-agent usr/bin/host_ping \
          usr/lib/firmware/playground.elf usr/lib/firmware/playground-starter.elf \
-         usr/bin/bl_send etc/duo-playground-release usr/lib/systemd/system/rtos-agent.service \
+         usr/bin/bl_send usr/bin/python3 usr/bin/beitlab-link \
+         etc/duo-playground-release usr/lib/systemd/system/rtos-agent.service \
          etc/systemd/system/multi-user.target.wants/rtos-agent.service \
          etc/systemd/system/multi-user.target.wants/sshd.service \
          etc/systemd/system/multi-user.target.wants/avahi-daemon.service \
@@ -271,31 +261,58 @@ check "ok: rootfs has the remoteproc module, agent, firmware, sshd, avahi; rtos-
 
 # Wireless payload, boot ordering, saved-profile permissions and identity.
 python3 "$REPO/scripts/check-rootfs-network.py" "$TARBALL" "$VERSION" | tee -a "$CHECKS"
+python3 "$REPO/scripts/check-rootfs-studio.py" "$TARBALL" duos_standalone | tee -a "$CHECKS"
 
 # ---- output ----
 IMG="$(ls -t "$SDK"/out/"$TARGET"_*.img 2>/dev/null | head -1 || true)"
 [ -f "$IMG" ] || die "no $TARGET image in $SDK/out"
-NAME="beitlab-robotics-milkv-duo-os-$VERSION-duos-arm64-sd.img"
+
+boot_checks() {  # image, expected board
+  local image="$1" board="$2" offset drive
+  offset=$(( $(od -An -tu4 -j454 -N4 "$image") * 512 ))
+  drive="$image@@$offset"
+  mcopy -i "$drive" ::/playground/wifi-supported - |
+    grep -qx 'beitlab boot Wi-Fi provisioning v1' || die "boot Wi-Fi provisioning marker missing"
+  mcopy -i "$drive" ::/playground/setup-supported - |
+    grep -qx 'beitlab first-boot Wi-Fi, hostname and SSH public-key provisioning v1' || die "first-boot setup marker missing"
+  mcopy -i "$drive" ::/playground/user-supported - |
+    grep -qx 'beitlab regular-user provisioning v1' || die "regular-user marker missing"
+  mcopy -i "$drive" ::/playground/studio-supported - |
+    grep -qx 'beitlab Studio link provisioning v1' || die "Studio marker missing"
+  mcopy -i "$drive" ::/playground/board - | grep -qx "$board" || die "boot board marker is not $board"
+  for f in ::/fip.bin ::/boot.sd; do
+    mdir -i "$drive" "$f" >/dev/null || die "boot volume missing $f"
+  done
+  for f in wifi.conf hostname authorized_keys user.conf studio.conf device-secret; do
+    if mdir -i "$drive" "::/playground/$f" >/dev/null 2>&1; then
+      die "release image contains personal boot settings: $f"
+    fi
+  done
+  check "ok: $(basename "$image"): boot volume has fip.bin, boot.sd, all setup markers, board $board; no personal settings"
+}
+
+NAMES=()
+NAME="$(python3 "$REPO/scripts/make-variant.py" name --variant standalone --version "$VERSION")"
 cp "$IMG" "$OUT/$NAME"
-BOOT_OFFSET=$(( $(od -An -tu4 -j454 -N4 "$OUT/$NAME") * 512 ))
-BOOT_DRIVE="$OUT/$NAME@@$BOOT_OFFSET"
-mcopy -i "$BOOT_DRIVE" ::/playground/wifi-supported - |
-  grep -qx 'beitlab boot Wi-Fi provisioning v1' || die "boot Wi-Fi provisioning marker missing"
-mcopy -i "$BOOT_DRIVE" ::/playground/setup-supported - |
-  grep -qx 'beitlab first-boot Wi-Fi, hostname and SSH public-key provisioning v1' || die "first-boot setup marker missing"
-for f in ::/fip.bin ::/boot.sd; do
-  mdir -i "$BOOT_DRIVE" "$f" >/dev/null || die "boot volume missing $f"
-done
-mcopy -i "$BOOT_DRIVE" ::/playground/user-supported - |
-  grep -qx 'beitlab regular-user provisioning v1' || die "regular-user marker missing"
-for f in wifi.conf hostname authorized_keys user.conf; do
-  if mdir -i "$BOOT_DRIVE" "::/playground/$f" >/dev/null 2>&1; then
-    die "release image contains personal boot settings: $f"
-  fi
-done
-check "ok: boot volume has fip.bin, boot.sd, Wi-Fi and full setup markers; no personal settings"
+boot_checks "$OUT/$NAME" duos_standalone
+NAMES+=("$NAME")
+
+if [ "$ROBOTICS" = 1 ]; then
+  RNAME="$(python3 "$REPO/scripts/make-variant.py" name --variant robotics-board --version "$VERSION")"
+  RTAR="$BUILD/rootfs-robotics-board.tar.xz"
+  rm -f "$OUT/$RNAME" "$RTAR"
+  python3 "$REPO/scripts/make-variant.py" derive --variant robotics-board \
+    --image "$OUT/$NAME" --out "$OUT/$RNAME" --tarball "$TARBALL" --out-tarball "$RTAR" \
+    --starter "$FW_BUILD/board-inspector.elf" "${VARIANT_ARGS[@]}"
+  python3 "$REPO/scripts/check-rootfs-security.py" "$RTAR" | tee -a "$CHECKS"
+  python3 "$REPO/scripts/check-rootfs-network.py" "$RTAR" "$VERSION" | tee -a "$CHECKS"
+  python3 "$REPO/scripts/check-rootfs-studio.py" "$RTAR" robotics_board_rev011 | tee -a "$CHECKS"
+  boot_checks "$OUT/$RNAME" robotics_board_rev011
+  NAMES+=("$RNAME")
+fi
+
 cp "$BUILD/agent/rtos-agent" "$OUT/rtos-agent-$VERSION-aarch64"
-( cd "$OUT" && sha256sum "$NAME" "rtos-agent-$VERSION-aarch64" > SHA256SUMS )
-check "ok: $OUT/$NAME"
+( cd "$OUT" && sha256sum "${NAMES[@]}" "rtos-agent-$VERSION-aarch64" > SHA256SUMS )
+for n in "${NAMES[@]}"; do check "ok: $OUT/$n"; done
 cat "$OUT/SHA256SUMS"
-say "done: $OUT/$NAME"
+say "done: ${NAMES[*]}"

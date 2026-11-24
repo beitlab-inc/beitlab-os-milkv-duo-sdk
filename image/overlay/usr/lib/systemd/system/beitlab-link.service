@@ -1,0 +1,24 @@
+[Unit]
+Description=beitlab Studio link (outbound to the Studio's device-hub)
+Documentation=file:/etc/duo-playground-release
+Wants=network-online.target
+After=network-online.target time-sync.target beitlab-studio-import.service rtos-agent.service beitlab-board-status.service
+# Off when the card was made without a Studio address (imager --no-studio).
+ConditionPathExists=/etc/beitlab/studio/url
+
+[Service]
+Type=simple
+User=beitlab
+Group=beitlab
+# The secret file is root-only; systemd hands it to this service alone.
+LoadCredential=device-secret:/etc/beitlab/studio/device-secret
+RuntimeDirectory=beitlab-link
+StateDirectory=beitlab-link
+ExecStart=/usr/bin/beitlab-link
+Restart=always
+RestartSec=10
+# No NoNewPrivileges or ProtectSystem: the link reaches the C906 through the
+# sudo rtos-control helper, whose rtos-agent writes /lib/firmware.
+
+[Install]
+WantedBy=multi-user.target

@@ -160,6 +160,28 @@ Verify the host-key fingerprint on the serial console (`ssh-keygen -lf /etc/ssh/
 
 **User access.** The account is `beitlab`, with a private home. Root has a locked password and cannot log in over SSH. Before flashing, configure a public key and preferably a unique user password for administration. With a key only, firmware upload/status/recover still work through the restricted helper, while general sudo needs a user password. On J22, the initial account wizard can set that password before the login prompt; the first question times out after 30 seconds and the entire setup is bounded to three minutes. No configured key or password means the account remains locked until provisioned.
 
+### Link the board to the Studio (0.5.0)
+
+From 0.5.0 there are two images: **duos-standalone** for a Milk-V Duo S alone, and
+**robotics-board** for the Beitlab Robotics Board (also Balance Robot v1). The imager asks which
+board the card is for and picks the image. It then offers the Studio address (from `imager.json`,
+or type `none`) and suggests a unique hostname such as `robot-07`. At the end it prints a
+**board card**: hostname, board type and a 6-character **claim code**. Keep it: in the Studio,
+**My boards → Add board** needs the hostname and the claim code. The serial console (J22) and the
+login message show the same code.
+
+Without the imager:
+
+```bash
+python3 scripts/configure-image.py --image beitlab-robotics-milkv-duo-os-0.5.1-duos-standalone-arm64-sd.img \
+  --output robot-07.img --board duos-standalone --hostname robot-07 \
+  --studio-url http://192.168.1.116:8090 --ssh-key ~/.ssh/id_ed25519.pub
+```
+
+The board connects **out** to the Studio over HTTPS (plain HTTP only to a Studio on the local
+network) and runs only the Studio's allowlisted jobs. The personal image contains the board's
+device secret: keep it private, like a Wi-Fi password.
+
 ## 2. Boot switch and power
 
 1. With the board unpowered, set the Duo S **boot switch to ARM**.

@@ -1,16 +1,31 @@
 #!/usr/bin/env python3
-"""Prepare Wi-Fi, hostname, regular-user credentials and SSH keys before first boot."""
+"""Prepare Wi-Fi, hostname, regular-user credentials, SSH keys and the Studio link before first boot."""
 import argparse
 import base64
 import getpass
 import hashlib
+import ipaddress
+import json
 import os
 from pathlib import Path
 import re
+import secrets
 import shutil
 import struct
 import subprocess
 import tempfile
+import urllib.parse
+
+# Board variants (PROMPT.md 0.5.0): --board name -> boot-volume playground/board value.
+BOARDS = {"duos-standalone": "duos_standalone", "robotics-board": "robotics_board_rev011"}
+BOARD_LABEL = {"duos_standalone": "Milk-V Duo S (standalone image)",
+               "robotics_board_rev011": "Beitlab Robotics Board rev 0.11 image"}
+CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+# Which boot-volume marker each provisioning file needs.
+MARKERS = {"wifi.conf": "wifi-supported", "hostname": "setup-supported", "authorized_keys": "user-supported",
+           "user.conf": "user-supported", "studio.conf": "studio-supported", "device-secret": "studio-supported"}
+MARKER_VERSION = {"wifi-supported": "0.2.0", "setup-supported": "0.3.0", "user-supported": "0.4.0",
+                  "studio-supported": "0.5.0"}
 
 
 def profile(ssid, password, country=None):
@@ -138,7 +153,63 @@ def user_profile(password=None, password_login=False):
     return f"password_hash={hashed}\nssh_password_login={'yes' if password_login else 'no'}\n"
 
 
-def provisioning_files(content=None, hostname=None, ssh_keys=None, user=None):
+def studio_url(url):
+    """The Studio address: https://, or http:// only to a private-network host (the lab)."""
+    url = url.strip().rstrip("/")
+    parts = urllib.parse.urlsplit(url)
+    if len(url) > 200 or parts.query or parts.fragment or parts.username or not parts.hostname \
+            or not re.fullmatch(r"https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?", url):
+        raise ValueError("Studio address must look like https://studio.example.com")
+    if parts.scheme == "http":
+        host = parts.hostname
+        try:
+            private = ipaddress.ip_address(host).is_private
+        except ValueError:
+            private = host.endswith(".local") or "." not in host
+        if not private:
+            raise ValueError("plain http:// is only for a Studio on the local network; use https://")
+    return url
+
+
+def claim_code(secret):
+    """Same derivation as beitlab-link and the Studio's device-hub (test vectors in scripts/tests)."""
+    digest = hashlib.sha256(b"beitlab-claim-v1"
+                            + bytes.fromhex(hashlib.sha256(secret.encode("ascii")).hexdigest())).digest()
+    bits = int.from_bytes(digest[:4], "big") >> 2
+    return "".join(CROCKFORD[(bits >> shift) & 31] for shift in range(25, -1, -5))
+
+
+def studio_settings(url, secret=None):
+    """Boot-volume files for the Studio link, and the claim code for the board card."""
+    secret = secret or secrets.token_hex(32)
+    if not re.fullmatch(r"[0-9a-f]{64}", secret):
+        raise ValueError("device secret must be 64 lowercase hex characters")
+    return {"studio.conf": studio_url(url) + "\n", "device-secret": secret + "\n"}, claim_code(secret)
+
+
+def default_studio_url(root=None):
+    try:
+        data = json.loads((Path(root or Path(__file__).resolve().parents[1]) / "imager.json").read_text())
+    except (OSError, ValueError):
+        return None
+    return data.get("studio_url") or None
+
+
+def board_card(hostname, board, code, url):
+    return (f"Hostname:    {hostname}\nBoard type:  {BOARD_LABEL.get(board, board or 'unknown')}\n"
+            f"Claim code:  {code}\nStudio:      {url}\n"
+            "Add the board in the Studio (My boards -> Add board) with the hostname and claim code.\n")
+
+
+def image_board(image, offset):
+    """The variant written on the boot volume (playground/board), or None for images before 0.5.0."""
+    result = subprocess.run(["mcopy", "-n", "-i", f"{image}@@{offset}", "::/playground/board", "-"],
+                            capture_output=True, text=True)
+    value = result.stdout.strip() if result.returncode == 0 else ""
+    return value if value in BOARD_LABEL else None
+
+
+def provisioning_files(content=None, hostname=None, ssh_keys=None, user=None, studio=None):
     files = {}
     if content is not None:
         files["wifi.conf"] = content
@@ -149,16 +220,34 @@ def provisioning_files(content=None, hostname=None, ssh_keys=None, user=None):
         files["user.conf"] = user if user is not None else user_profile()
     elif user is not None:
         files["user.conf"] = user
+    if studio is not None:
+        if hostname is None:
+            raise ValueError("the Studio link needs a hostname (students add the board by its hostname)")
+        files.update(studio)
     if not files:
         raise ValueError("choose Wi-Fi, a hostname or an SSH public key")
     return files
 
 
-def configure_boot(directory, content=None, hostname=None, ssh_keys=None, user=None):
-    files = provisioning_files(content, hostname, ssh_keys, user)
-    marker = "user-supported" if "user.conf" in files else "setup-supported" if hostname is not None else "wifi-supported"
-    if not (directory / "playground" / marker).is_file():
-        raise ValueError("this boot volume lacks the requested provisioning support; use OS 0.4.0 for regular-user keys/passwords")
+def required_markers(files):
+    """The newest marker the files need. Images are cumulative (a 0.5.0 card has every older marker),
+    so as before only that one is checked."""
+    order = ["wifi-supported", "setup-supported", "user-supported", "studio-supported"]
+    return [max({MARKERS[name] for name in files}, key=order.index)]
+
+
+def configure_boot(directory, content=None, hostname=None, ssh_keys=None, user=None, studio=None, board=None):
+    files = provisioning_files(content, hostname, ssh_keys, user, studio)
+    for marker in required_markers(files):
+        if not (directory / "playground" / marker).is_file():
+            raise ValueError(f"this boot volume lacks the requested provisioning support; use OS {MARKER_VERSION[marker]} or later")
+    if board is not None:
+        try:
+            found = (directory / "playground" / "board").read_text().strip()
+        except OSError:
+            found = None
+        if found != board:
+            raise ValueError(f"this card has the {BOARD_LABEL.get(found, 'unknown')} on it, not the {BOARD_LABEL[board]}")
     for name in files:
         if os.path.lexists(directory / "playground" / name):
             raise FileExistsError(f"{directory / 'playground' / name} already exists")
@@ -174,8 +263,9 @@ def configure_boot(directory, content=None, hostname=None, ssh_keys=None, user=N
         raise
 
 
-def configure_image(source, destination, content=None, hostname=None, ssh_keys=None, user=None):
-    files = provisioning_files(content, hostname, ssh_keys, user)
+def configure_image(source, destination, content=None, hostname=None, ssh_keys=None, user=None,
+                    studio=None, board=None):
+    files = provisioning_files(content, hostname, ssh_keys, user, studio)
     offset = boot_offset(source)
     for tool in ("mcopy", "mdir"):
         if not shutil.which(tool):
@@ -183,13 +273,17 @@ def configure_image(source, destination, content=None, hostname=None, ssh_keys=N
     # A 0.1.x image lacks the first-boot importer. Refuse before making a
     # misleading personalized copy. This marker is added by the image build.
     source_drive = f"{source.resolve()}@@{offset}"
-    marker = "user-supported" if "user.conf" in files else "setup-supported" if hostname is not None else "wifi-supported"
-    try:
-        subprocess.run(["mdir", "-i", source_drive, f"::/playground/{marker}"],
-                       check=True, capture_output=True)
-    except subprocess.CalledProcessError as error:
-        version = {"user-supported": "0.4.0", "setup-supported": "0.3.0", "wifi-supported": "0.2.0"}[marker]
-        raise ValueError(f"image lacks the requested provisioning support; use OS {version} or later") from error
+    for marker in required_markers(files):
+        try:
+            subprocess.run(["mdir", "-i", source_drive, f"::/playground/{marker}"],
+                           check=True, capture_output=True)
+        except subprocess.CalledProcessError as error:
+            raise ValueError(f"image lacks the requested provisioning support; use OS {MARKER_VERSION[marker]} or later") from error
+    if board is not None:
+        found = image_board(source.resolve(), offset)
+        if found != board:
+            raise ValueError(f"wrong image: this is the {BOARD_LABEL.get(found, 'pre-0.5.0 image')}, "
+                             f"not the {BOARD_LABEL[board]}; pick the image for your board")
     checksum_path = destination.with_name(destination.name + ".sha256")
     if checksum_path.exists():
         raise FileExistsError(f"{checksum_path} already exists")
@@ -234,6 +328,10 @@ def main():
     parser.add_argument("--no-wifi", action="store_true", help="configure only hostname/SSH keys; do not ask for Wi-Fi")
     parser.add_argument("--user-password", action="store_true", help="prompt for a unique beitlab password for sudo/local login")
     parser.add_argument("--ssh-password-login", action="store_true", help="explicitly enable password SSH (requires --user-password)")
+    parser.add_argument("--board", choices=sorted(BOARDS), help="the board this card is for; refuses an image of the other variant")
+    studio = parser.add_mutually_exclusive_group()
+    studio.add_argument("--studio-url", help="Studio address the board links to, e.g. https://studio.beitlab.com")
+    studio.add_argument("--no-studio", action="store_true", help="do not link this board to a Studio")
     args = parser.parse_args()
     if bool(args.image) != bool(args.output):
         parser.error("--image requires --output; --boot-dir does not use --output")
@@ -252,22 +350,35 @@ def main():
                 raise ValueError("user passwords do not match")
             user = user_profile(password, args.ssh_password_login)
             del password
+        studio_files, code, url = None, None, None
+        if args.studio_url and not args.no_studio:  # opt-in here; the guided imager offers imager.json's default
+            url = studio_url(args.studio_url)
+            if args.hostname is None:
+                raise ValueError("the Studio link needs --hostname (for example robot-07), or use --no-studio")
+            studio_files, code = studio_settings(url)
         content = None
         if not args.no_wifi:
             ssid = args.ssid if args.ssid is not None else input("Wi-Fi SSID: ")
             password = getpass.getpass("Wi-Fi password (hidden): ")
+            # A mistyped password leaves the board offline until J22 setup.
+            if password != getpass.getpass("Confirm Wi-Fi password (hidden): "):
+                raise ValueError("Wi-Fi passwords do not match")
             content = profile(ssid, password, args.country)
             del password
+        board = BOARDS[args.board] if args.board else None
         if args.image:
-            configure_image(args.image, args.output, content, args.hostname, keys, user)
+            configure_image(args.image, args.output, content, args.hostname, keys, user, studio_files, board)
             print(f"First-boot settings configured. Flash {args.output} with your image writer.")
         else:
-            configure_boot(args.boot_dir, content, args.hostname, keys, user)
+            configure_boot(args.boot_dir, content, args.hostname, keys, user, studio_files, board)
             print("First-boot settings configured. Safely eject the card and boot the Duo S.")
+        if studio_files:
+            print("\n== Board card (write it down or print it) ==\n"
+                  + board_card(args.hostname.lower(), board, code, url))
         if args.hostname:
             print(f"Connect after boot: ssh beitlab@{args.hostname.lower()}.local")
-        if content or user:
-            print("Keep this image/card private: it contains network or account credentials.")
+        if content or user or studio_files:
+            print("Keep this image/card private: it contains network, account or Studio credentials.")
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         # mtools arguments contain paths only, never the password/PSK.
         parser.exit(1, f"configure-wifi: {error}\n")

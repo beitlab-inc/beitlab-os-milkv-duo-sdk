@@ -92,7 +92,13 @@ jobs:
           PLAYGROUND_README_URL: https://github.com/${{ github.repository }}#readme
         run: |
           mkdir -p "$BEITLAB_WORK_DIR"
-          scripts/build-image.sh --docker 2>&1 | tee "$BEITLAB_WORK_DIR/build.log"
+          args=(--docker)
+          # The Robotics Board image needs the board inspector firmware.
+          if [[ ! -x firmware/inspector/build.sh ]]; then
+            echo '::warning::firmware/inspector is missing; building the standalone image only'
+            args+=(--standalone-only)
+          fi
+          scripts/build-image.sh "${args[@]}" 2>&1 | tee "$BEITLAB_WORK_DIR/build.log"
       - name: Package release assets
         env:
           VERSION: ${{ steps.version.outputs.version }}

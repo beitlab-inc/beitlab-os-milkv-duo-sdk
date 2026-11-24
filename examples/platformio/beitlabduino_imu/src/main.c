@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT */
-/* Carrier BMI323 through the beitlabduino setup()/loop() API. */
+/* Board IMU through the beitlabduino setup()/loop() API: the robotics_board
+ * environment reads the carrier BMI323, milkv an external BMI160 on J3. */
 #include "beitlabduino.h"
 #include "beitlabduino_imu.h"
 
@@ -11,7 +12,7 @@ static int start_imu(void)
 	if (bl_imu_begin() != 0)
 		return 0;
 	missed = 0;
-	bl_print("beitlabduino IMU ready: BMI323 I2C4 0x68, print 10Hz");
+	bl_print("beitlabduino IMU ready: %s, print 10Hz", bl_imu_sensor());
 	bl_print("Units: a_mg=0.001g, g_mdps=0.001deg/s, temp_mC=0.001C");
 	return 1;
 }

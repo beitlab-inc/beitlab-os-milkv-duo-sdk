@@ -75,10 +75,18 @@ BUILD_FREERTOS_PATH="$TOP/build"
 RUN_TYPE=CVIRTOS RUN_CHIP=cv181x RUN_ARCH=riscv64
 
 stage() {  # stage <name> <source dir> [extra -D...]
-  local name="$1" src="$2"; shift 2
+  local name="$1" src="$2" gen="$GEN" cache; shift 2
   mkdir -p "$BUILD_FREERTOS_PATH/$name"
+  # The build folder is shared by host PlatformIO builds (often no ninja) and
+  # the Docker image build (ninja installed). CMake refuses to switch the
+  # generator of an existing cache, so keep the one it was made with.
+  cache="$BUILD_FREERTOS_PATH/$name/CMakeCache.txt"
+  if [ -f "$cache" ]; then
+    gen="$(sed -n 's/^CMAKE_GENERATOR:INTERNAL=//p' "$cache")"
+    [ -n "$gen" ] || gen="$GEN"
+  fi
   ( cd "$BUILD_FREERTOS_PATH/$name"
-    cmake -G "$GEN" -DCHIP=$RUN_CHIP -DRUN_ARCH=$RUN_ARCH -DTOP_DIR="$TOP" \
+    cmake -G "$gen" -DCHIP=$RUN_CHIP -DRUN_ARCH=$RUN_ARCH -DTOP_DIR="$TOP" \
       -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE_PATH" "$@" "$src" >/dev/null
     cmake --build . --target install >/dev/null )
   echo "build-rtos-libs: $name ok"

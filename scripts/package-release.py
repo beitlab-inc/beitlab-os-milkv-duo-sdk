@@ -26,22 +26,28 @@ def package(source, destination, version):
         raise FileExistsError(f"asset directory already exists: {destination}")
     if destination.resolve().is_relative_to(REPO):
         raise ValueError("release assets must be outside the source checkout")
-    image = source / f"beitlab-robotics-milkv-duo-os-{version}-duos-arm64-sd.img"
+    # 0.5.0+: one image per board variant; older builds: a single "-duos-" image.
+    suffixes = ("duos-standalone-arm64-sd.img", "robotics-board-arm64-sd.img", "duos-arm64-sd.img")
+    images = sorted(source / f"beitlab-robotics-milkv-duo-os-{version}-{suffix}" for suffix in suffixes
+                    if (source / f"beitlab-robotics-milkv-duo-os-{version}-{suffix}").is_file())
+    if not images:
+        raise FileNotFoundError(f"no beitlab {version} image in {source}")
     agent = source / f"rtos-agent-{version}-aarch64"
     expected = {}
     for row in (source / "SHA256SUMS").read_text().splitlines():
         checksum, name = row.split(maxsplit=1)
         expected[name.lstrip("*")] = checksum
-    for path in (image, agent):
+    for path in (*images, agent):
         if expected.get(path.name) != digest(path):
             raise ValueError(f"build checksum mismatch: {path.name}")
     destination.mkdir(parents=True)
     try:
-        compressed = destination / (image.name + ".xz")
-        with compressed.open("xb") as stream:
-            subprocess.run(["xz", "-T0", "-3", "-c", str(image)], stdout=stream, check=True)
-        # A sidecar for the extracted image is useful to non-imager writers.
-        (destination / (image.name + ".sha256")).write_text(f"{expected[image.name]}  {image.name}\n")
+        for image in images:
+            compressed = destination / (image.name + ".xz")
+            with compressed.open("xb") as stream:
+                subprocess.run(["xz", "-T0", "-3", "-c", str(image)], stdout=stream, check=True)
+            # A sidecar for the extracted image is useful to non-imager writers.
+            (destination / (image.name + ".sha256")).write_text(f"{expected[image.name]}  {image.name}\n")
         shutil.copyfile(agent, destination / agent.name)
         tools = destination / f"beitlab-imager-tools-{version}.zip"
         with zipfile.ZipFile(tools, "x", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -72,9 +78,18 @@ def package(source, destination, version):
             archive.write(REPO / "docs/LICENSING.md", "LICENSING.md")
         for name in ("build-checks.txt", "dtb-check.txt"):
             shutil.copyfile(source / name, destination / name)
+        # Describe only the images this build produced (a standalone-only build has one).
+        kinds = [label for suffix, label in (
+            ("duos-standalone-arm64-sd.img", "duos-standalone for a Milk-V Duo S alone"),
+            ("robotics-board-arm64-sd.img", "robotics-board for the Beitlab Robotics Board (and Balance Robot v1)"),
+            ("duos-arm64-sd.img", "duos for a Milk-V Duo S"))
+            if any(image.name.endswith("-" + suffix) for image in images)]
+        imager = ("open it with beitlab Imager, which asks which board the card is for" if len(kinds) > 1
+                  else "open it with beitlab Imager")
         (destination / "release-notes.md").write_text(
             f"beitlab Robotics MilkV duo OS {version}\n\n"
-            "Duo S ARM64 SD image. Extract the .img.xz or open it with beitlab Imager.\n"
+            f"Duo S ARM64 SD image{'s' if len(kinds) > 1 else ''}: {', '.join(kinds)}. "
+            f"Extract the .img.xz or {imager}.\n"
             "Use the regular beitlab account and provision your SSH public key before boot.\n"
             "Root SSH is disabled; there is no default password.\n\n"
             "Includes bl_send; the beitlab group can use the C906 mailbox without sudo.\n"
