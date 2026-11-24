@@ -1610,3 +1610,30 @@ About 0.95 g total, gyro below 1 °/s, 25.6 °C. BMI160 readings are
 **verified on hardware** through `beitlabduino_imu -e milkv`. The carrier
 BMI323 with the fixed transport, bus timing and a J22 serial capture remain
 pending.
+
+## OS 0.5.1 standalone image build (2026-11-24)
+
+Built from tag `v0.5.1` (commit `0ee0ed0`, clean tree) with
+`scripts/build-image.sh --docker --standalone-only` in `milkvtech/milkv-duo:latest`, reusing the
+SDK checkout at the unchanged `sdk.lock` commit. Log:
+`~/.cache/beitlab-duo-os/reports/build-0.5.1-standalone.log`. 0.5.1 adds the Studio terminal
+(link 0.5.1) to 0.5.0; the I2C4 fix is PC-side firmware and is not part of the image.
+
+Result: exit 0; every check in `build-checks.txt` passed, including `python3 (ssl, PTY
+extensions, no pip)` and the boot-volume check (all setup markers, `board duos_standalone`, no
+personal settings). Inspected in the rootfs: `/usr/bin/beitlab-link` is byte-identical to
+`link/beitlab-link.py` (`VERSION = "0.5.1"`); `/etc/duo-playground-release` reads
+`beitlab Robotics MilkV duo OS 0.5.1 (Milk-V Duo S standalone) (sdk 6f8962c394dd, starter
+v0.5.1)`; no Studio device secret or URL.
+
+- Image: `beitlab-robotics-milkv-duo-os-0.5.1-duos-standalone-arm64-sd.img`, 941621760 bytes,
+  SHA256 `ad0e4ae42e38ef74c92c891dad4e81ad8089246309e52413ce6b80d74a24978e`.
+- Agent: `rtos-agent-0.5.1-aarch64`, SHA256
+  `1190410f6613bbc52feba5f99c6330cbf76cd4f8aea0ece7de9a90aaf0754469`.
+- `configure-image.py` on a copy, with user password, Wi-Fi (both confirmed), SSH key, hostname
+  and Studio URL, produced a personal image and board card; `--board robotics-board` was refused
+  as the wrong image. Copies deleted; `sha256sum -c SHA256SUMS` still passes.
+
+The Robotics Board image is not built (no inspector firmware yet). **Not verified on hardware:**
+the 0.5.1 image has not been flashed or booted; the Studio terminal has not run on a board.
+Nothing was pushed or published.
