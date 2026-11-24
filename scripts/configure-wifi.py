@@ -360,6 +360,9 @@ def main():
         if not args.no_wifi:
             ssid = args.ssid if args.ssid is not None else input("Wi-Fi SSID: ")
             password = getpass.getpass("Wi-Fi password (hidden): ")
+            # A mistyped password leaves the board offline until J22 setup.
+            if password != getpass.getpass("Confirm Wi-Fi password (hidden): "):
+                raise ValueError("Wi-Fi passwords do not match")
             content = profile(ssid, password, args.country)
             del password
         board = BOARDS[args.board] if args.board else None
