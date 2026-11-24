@@ -1613,7 +1613,7 @@ pending.
 
 ## OS 0.5.1 standalone image build (2026-11-24)
 
-Built from tag `v0.5.1` (commit `0ee0ed0`, clean tree) with
+Built from commit `0ee0ed0` (clean tree, then locally tagged `v0.5.1`) with
 `scripts/build-image.sh --docker --standalone-only` in `milkvtech/milkv-duo:latest`, reusing the
 SDK checkout at the unchanged `sdk.lock` commit. Log:
 `~/.cache/beitlab-duo-os/reports/build-0.5.1-standalone.log`. 0.5.1 adds the Studio terminal
@@ -1636,4 +1636,6 @@ v0.5.1)`; no Studio device secret or URL.
 
 The Robotics Board image is not built (no inspector firmware yet). **Not verified on hardware:**
 the 0.5.1 image has not been flashed or booted; the Studio terminal has not run on a board.
-Nothing was pushed or published.
+The `v0.5.1` tag was then moved, before its first push, to the commit that also makes CI
+build standalone-only while `firmware/inspector/` is missing and makes the release notes name
+only the built images. Neither file is in the image; CI rebuilds the release assets at the tag.

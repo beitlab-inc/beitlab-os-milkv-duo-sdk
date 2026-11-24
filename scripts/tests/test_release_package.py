@@ -67,6 +67,17 @@ class PackageTest(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             RELEASE.package(self.source, self.destination, "1.2.3")
 
+    def test_release_notes_name_only_the_built_images(self):
+        standalone = self.source / "beitlab-robotics-milkv-duo-os-1.2.3-duos-standalone-arm64-sd.img"
+        self.image.rename(standalone)
+        self.source.joinpath("SHA256SUMS").write_text("".join(
+            f"{RELEASE.digest(p)}  {p.name}\n" for p in (standalone, self.agent)))
+        RELEASE.package(self.source, self.destination, "1.2.3")
+        notes = (self.destination / "release-notes.md").read_text()
+        self.assertIn("duos-standalone for a Milk-V Duo S alone", notes)
+        self.assertNotIn("robotics-board", notes)
+        self.assertNotIn("which board", notes)
+
     def test_reject_version_path_injection(self):
         with self.assertRaises(ValueError):
             RELEASE.package(self.source, self.destination, "../bad")

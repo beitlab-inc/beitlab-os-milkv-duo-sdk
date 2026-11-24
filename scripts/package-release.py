@@ -78,11 +78,18 @@ def package(source, destination, version):
             archive.write(REPO / "docs/LICENSING.md", "LICENSING.md")
         for name in ("build-checks.txt", "dtb-check.txt"):
             shutil.copyfile(source / name, destination / name)
+        # Describe only the images this build produced (a standalone-only build has one).
+        kinds = [label for suffix, label in (
+            ("duos-standalone-arm64-sd.img", "duos-standalone for a Milk-V Duo S alone"),
+            ("robotics-board-arm64-sd.img", "robotics-board for the Beitlab Robotics Board (and Balance Robot v1)"),
+            ("duos-arm64-sd.img", "duos for a Milk-V Duo S"))
+            if any(image.name.endswith("-" + suffix) for image in images)]
+        imager = ("open it with beitlab Imager, which asks which board the card is for" if len(kinds) > 1
+                  else "open it with beitlab Imager")
         (destination / "release-notes.md").write_text(
             f"beitlab Robotics MilkV duo OS {version}\n\n"
-            "Duo S ARM64 SD images: duos-standalone for a Milk-V Duo S alone, robotics-board for the "
-            "Beitlab Robotics Board (and Balance Robot v1). Extract the .img.xz or open it with beitlab "
-            "Imager, which asks which board the card is for.\n"
+            f"Duo S ARM64 SD image{'s' if len(kinds) > 1 else ''}: {', '.join(kinds)}. "
+            f"Extract the .img.xz or {imager}.\n"
             "Use the regular beitlab account and provision your SSH public key before boot.\n"
             "Root SSH is disabled; there is no default password.\n\n"
             "Includes bl_send; the beitlab group can use the C906 mailbox without sudo.\n"
